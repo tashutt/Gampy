@@ -7,6 +7,8 @@ tracks from PENELOPE or other code.
 TODO: Deal with versioning.  Add file name generator?
 
 @author: tshutt
+
+calorimeter and shield added by sjett 8/10/23
 """
 
 def calculate_geomega_geometry_v1(params):
@@ -17,7 +19,6 @@ def calculate_geomega_geometry_v1(params):
         + Two indientical layers of cells, either rectangular or hexagonal
         + Two identical ACD layers with full footprint of cylinder
         + Internal dead material (anode, cathode, cell walls) of LAr
-        + No calorimeter
         + No separate micrometeor shied
 
     From geomega_inputs, calculate all params needed to describe the
@@ -148,6 +149,7 @@ def calculate_geomega_geometry_v1(params):
 
     #%% Now make geomega file image
 
+
     def get_tpc_cell_line(cell_number, cell_center, cell_geometry):
         '''
         For a cell number and location of center, returns the
@@ -256,14 +258,36 @@ def calculate_geomega_geometry_v1(params):
         'BaseACDLayer.Shape TUBE '
         + '0. '
         + f'{vessel_r_inner*100:10.7f} '
-        + f'{params.acd["thickness"]/2*100:10.7f} '
+        + f'{(params.acd["thickness"]/2)*100:10.7f} '
         + '0. '
         + '360.'
         + '\n'
         )
-    lines.append('BaseACDLayer.Color 8\n')
+    lines.append('BaseACDLayer.Color 14\n')
 
     lines.append('\n')
+
+    # Outer ACD cylinder
+    # outer_act_thickness = params.acd["thickness"]
+    outer_act_thickness = 0.02
+    lines.append('// Outer ACD cylinder\n')
+    lines.append('Volume OuterACD\n')
+    lines.append('OuterACD.Material Argon\n')
+    lines.append(
+        'OuterACD.Shape TUBE '
+        + f'{vessel_r_inner*100:10.7f} ' # inner radius
+        + ' '
+        + f'{(vessel_r_inner + outer_act_thickness)*100:10.7f}'  # Outer radius (inner + thickness)
+        + ' '
+        + f'{(params.vessel["height"]/2)*100:10.7f} '
+        + '0. '
+        + '360.'
+        + '\n'
+    )
+    lines.append(f'OuterACD.Position 0.0 0.0 {(params.vessel["height"]/2)*100:10.7f}\n')
+    lines.append('OuterACD.Color 15\n')
+    lines.append('OuterACD.Mother WorldVolume\n\n')
+
 
     #   Now the actual volumes
 
@@ -280,7 +304,7 @@ def calculate_geomega_geometry_v1(params):
         + '360.'
         + '\n'
         )
-    lines.append('Vessel.Position 0. 0. 0.\n')
+    lines.append(f'Vessel.Position 0.0 0.0 {(params.vessel["height"] / 2)*100:10.7f}\n')
     lines.append('Vessel.Color 14\n')
     lines.append('Vessel.Mother WorldVolume\n')
 
@@ -299,7 +323,7 @@ def calculate_geomega_geometry_v1(params):
         + '360.'
         + '\n'
         )
-    lines.append('AllArgon.Position 0. 0. 0.\n')
+    lines.append('AllArgon.Position 0.0 0.0 0.0\n')
     lines.append('AllArgon.Color 38\n')
     lines.append('AllArgon.Mother Vessel\n')
 
@@ -339,6 +363,15 @@ def calculate_geomega_geometry_v1(params):
 
     lines.append('\n')
 
+    lines.append('Scintillator   ACD_outer\n')
+    lines.append('ACD_outer.DetectorVolume  OuterACD\n')
+    lines.append('ACD_outer.SensitiveVolume OuterACD\n')
+    lines.append('ACD_outer.TriggerThreshold 50\n')
+    lines.append('ACD_outer.EnergyResolution Gauss 50 50 5\n')
+    lines.append('ACD_outer.EnergyResolution Gauss 500 500 50\n')
+
+    lines.append('\n')
+
     lines.append('/////////////////////////////////////////\n')
     lines.append('//////////// Cells //////////////////////\n')
     lines.append('/////////////////////////////////////////\n')
@@ -364,7 +397,7 @@ def calculate_geomega_geometry_v1(params):
 
     lines.append('BaseACDLayer.Copy Top_ACD\n')
     lines.append(
-        'Top_ACD.Position  0. 0. '
+        'Top_ACD.Position  0.0 0.0 '
         + f'{params.z_centers["front_acd"]*100:10.7f}'
         + '\n'
         )
@@ -375,12 +408,88 @@ def calculate_geomega_geometry_v1(params):
 
     lines.append('BaseACDLayer.Copy Bottom_ACD\n')
     lines.append(
-        'Bottom_ACD.Position  0. 0. '
+        'Bottom_ACD.Position  0.0 0.0 '
         + f'{params.z_centers["back_acd"]*100:10.7f}'
         + '\n'
         )
     lines.append('Bottom_ACD.Rotation  0. 0. 0.\n')
     lines.append('Bottom_ACD.Mother    AllArgon\n')
+
+    if params.calorimeter['thickness'] != 0.0:
+        lines.append('/////////////////////////////////////////\n')
+        lines.append('////////////  Calorimeter  //////////////\n')
+        lines.append('/////////////////////////////////////////\n')
+
+        lines.append('Material CsI\n')
+        lines.append('CsI.Density 4.53\n')
+        lines.append('CsI.ComponentByAtoms Cs 1 // Cs\n')
+        lines.append('CsI.ComponentByAtoms I 1 // I\n')
+        lines.append('\n')
+        lines.append('Volume BaseCalorimeter\n')
+        lines.append('BaseCalorimeter.Material CsI\n')
+        
+
+        lines.append(
+            'BaseCalorimeter.Shape BOX '
+            + f'{((vessel_r_inner*100) / (2 ** 0.3)):10.7f} '
+            + f'{((vessel_r_inner*100) / (2 ** 0.3)):10.7f} '
+            + f'{params.calorimeter["thickness"]/2*100:10.7f} '
+            #+ '0. '
+            #+ '360.'
+            + '\n'
+            )
+        lines.append('BaseCalorimeter.Color 11\n')
+
+        lines.append('\n')
+        lines.append('Calorimeter       CsICal\n')
+        lines.append('CsICal.DetectorVolume  BaseCalorimeter\n')
+        lines.append('CsICal.SensitiveVolume BaseCalorimeter\n')
+        lines.append('CsICal.TriggerThreshold 50\n')
+        lines.append('CsICal.EnergyResolution Gauss 662 662 12.65\n')
+        lines.append('CsICal.EnergyResolution Gauss 661 661 12.43\n')
+        lines.append('CsICal.DepthResolution 662 0.21\n')
+        lines.append(
+            f'BaseCalorimeter.Position  0.0 0.0 {(-params.calorimeter["thickness"] / 2)*100:10.7f}\n'
+            )
+        lines.append('BaseCalorimeter.Rotation   0. 0. 0.\n')
+        lines.append('BaseCalorimeter.Mother     WorldVolume\n')
+
+        lines.append('\n')
+
+    if params.shield['thickness'] != 0.0:
+        lines.append('/////////////////////////////////////////\n')
+        lines.append('////////////  Earth Sheild  /////////////\n')
+        lines.append('/////////////////////////////////////////\n')   
+
+        lines.append('Material Lead\n')
+        lines.append('Lead.Density 11.3\n')
+        lines.append('Lead.ComponentByAtoms Pb 1 // Pb\n')
+        lines.append('\n')
+        lines.append('Material Tungsten\n')
+        lines.append('Tungsten.Density 19.3\n')
+        lines.append('Tungsten.ComponentByAtoms W 1 // W\n')
+        lines.append('\n')
+
+        lines.append('Volume Shield\n')
+        lines.append(f'Shield.Material {params.shield["material"]}\n')
+        lines.append(
+            'Shield.Shape TUBE '
+            + '0. '
+            + f'{(vessel_r_inner + params.acd["thickness"])*100:10.7f} '
+            + f'{params.shield["thickness"]*100:10.7f} '
+            + '0. '
+            + '360.'
+            + '\n'
+            )
+        shield_z = - ( params.calorimeter["thickness"] 
+                   +  params.shield["thickness"] 
+                   )
+                   
+        lines.append(f'Shield.Position 0.0 0.0 {(shield_z)*100:10.7f}\n')
+        lines.append('Shield.Color 1\n')
+        lines.append('Shield.Mother WorldVolume\n')
+
+        lines.append('\n')
 
     params.setup_file_lines = lines
 
@@ -596,111 +705,108 @@ def init_simple_geometry(bounding_box):
 
     return cells
 
-def global_to_cell_coordinates(
-        r_in,
-        cell,
-        params,
-        reverse=False,
-        alive=None
-        ):
+
+def global_to_cell_coordinates(r_in, cell, params, reverse=False):
     """
-    Translates r_in to r_out, between global coordinates and cell coordinates
-
-    Default is from global to cell; if reverse then is cell to global
-
-    r_in is often from hits, and has 3 dimensions: [space, scatter, event]
-    This routine also handles r_in of 1 [space] or 2 [space, event] dimensions
-
-    alive and cell have dimension [event]
-    cell is number of cell as defined in geomega geometry for each entry
-
-    r_in, cell and alive must be numpy arrays
+    Transforms coordinates based on cell properties and rotation.
+    
+    Parameters:
+    - r_in (awkward Array): The input coordinates, can be of shape (N, 3), (N, M, 3), or a scalar.
+    - cell (awkward Array or scalar): Indicates which cell the coordinates belong to.
+    - params (object): An object that contains cell properties like 'centers' and 'rotation'.
+    - reverse (bool): Whether to reverse the transformation.
+    
+    Returns:
+    - r_transformed (awkward Array): Transformed coordinates.
     """
 
     import numpy as np
+    import awkward as ak
 
+    # Extract cell parameters
     x_o = params.cells['centers'][0, :]
     y_o = params.cells['centers'][1, :]
     z_o = params.cells['centers'][2, :]
     theta = params.cells['rotation']
 
-    #   If not "standard" r from hits with dimensions (space, scatter, event),
-    #   then expand with null dimensions
-    if np.isscalar(cell):
-        cell = np.array([cell])
-    if r_in.ndim==3:
-        r_in_p = r_in
-        cell_p = cell
-    elif r_in.ndim==2:
-        r_in_p = np.expand_dims(r_in, axis=1)
-        cell_p = cell
+    # Determine the sign for reverse transformation
+    sign = -1 if reverse else 1
+    theta_rad = sign * np.radians(theta)
+
+    # Handle different shapes of r_in
+    if r_in.ndim == 3:
+        pass
+    elif r_in.ndim == 2:
+        r_in = ak.Array([r_in])
     else:
-        r_in_p = np.expand_dims(r_in, axis=(1, 2))
-        cell_p = np.expand_dims(cell, axis=1)
+        r_in = ak.Array([[r_in]])
+        cell = ak.Array([cell])
 
-    #   Set alive to True if not supplied
-    if alive is None:
-        alive = np.ones(r_in_p[0, :, :].shape, dtype=bool)
+    modified_x_list = []
+    modified_y_list = []
+    modified_z_list = []
 
-    #   Initialize output, with z being the same
-    r_out = np.zeros(r_in_p.shape, dtype=float)
+    # Create mask based on cell presence
+    cell_mask = ak.num(cell) > 0
 
-    #   cell to global - rotate first, then translate
+    # Perform reverse transformation. 
+    # Reverse: shift + rorate.
     if reverse:
+        for i, val in enumerate(cell_mask):
+            if val:
+                modified_x = r_in[i,0] + sign * ak.Array([x_o[cell[i] - 1]][0])
+                modified_y = r_in[i,1] + sign * ak.Array([y_o[cell[i] - 1]][0])
+                modified_z = r_in[i,2:] + sign * ak.Array([z_o[cell[i] - 1]][0])
 
-        for nh in range(r_in_p[0, :, 0].size):
+                # Perform rotation
+                temp_x = modified_x * np.cos(theta_rad) - modified_y * np.sin(
+                    theta_rad)
+                temp_y = modified_x * np.sin(theta_rad) + modified_y * np.cos(
+                    theta_rad)
+            else:
+                temp_x = r_in[i, 0]
+                temp_y = r_in[i, 1]
+                modified_z = r_in[i, 2:]
 
-            x_temp = \
-                r_in_p[0, nh, alive[nh, :]] \
-                    * np.cos(theta) \
-                - r_in_p[1, nh, alive[nh, :]] \
-                    * np.sin(theta)
-            y_temp = \
-                r_in_p[0, nh, alive[nh, :]] \
-                    * np.sin(theta) \
-                + r_in_p[1, nh, alive[nh, :]] \
-                    * np.cos(theta)
+            modified_x_list.append(temp_x)
+            modified_y_list.append(temp_y)
+            modified_z_list.append(modified_z)
 
-            r_out[0, nh, alive[nh, :]] = \
-                 x_temp \
-                 + x_o[cell_p[nh, alive[nh, :]]-1]
-            r_out[1, nh, alive[nh, :]] = \
-                 y_temp \
-                 +  y_o[cell_p[nh, alive[nh, :]]-1]
-            r_out[2, nh, alive[nh, :]] = \
-                r_in_p[2, nh, alive[nh, :]] \
-                +  z_o[cell_p[nh, alive[nh, :]]-1]
-
-    #   global to cell - translate, then rotate
+    # regular: rotate + shift
     else:
+        temp_x = r_in[:, 0] * np.cos(theta_rad) - r_in[:,
+                                                       1] * np.sin(theta_rad)
+        temp_y = r_in[:, 0] * np.sin(theta_rad) + r_in[:,
+                                                       1] * np.cos(theta_rad)
 
-        for nh in range(r_in_p[0, :, 0].size):
+        for i, val in enumerate(cell_mask):
+            if val:
+                modified_x = temp_x[i] + sign * ak.Array([x_o[cell[i] - 1]][0])
+                modified_y = temp_y[i] + sign * ak.Array([y_o[cell[i] - 1]][0])
+                modified_z = r_in[i,
+                                  2:] + sign * ak.Array([z_o[cell[i] - 1]][0])
+            else:
+                modified_x = temp_x[i]
+                modified_y = temp_y[i]
+                modified_z = r_in[i, 2:]
 
-            x_temp = \
-                r_in_p[0, nh, alive[nh, :]] \
-                - x_o[cell_p[nh, alive[nh, :]]-1]
-            y_temp = \
-                r_in_p[1, nh, alive[nh, :]] \
-                -  y_o[cell_p[nh, alive[nh, :]]-1]
-            r_out[2, nh, alive[nh, :]] = \
-                r_in_p[2, nh, alive[nh, :]] \
-                -  z_o[cell_p[nh, alive[nh, :]]-1]
+            modified_x_list.append(modified_x)
+            modified_y_list.append(modified_y)
+            modified_z_list.append(modified_z)
 
-            r_out[0, nh, alive[nh, :]] = \
-                x_temp \
-                    * np.cos(theta) \
-                + y_temp \
-                    * np.sin(theta)
-            r_out[1, nh, alive[nh, :]] = \
-                - x_temp \
-                    * np.sin(theta) \
-                + y_temp \
-                    * np.cos(theta)
+    # Convert lists to awkward arrays
+    modified_x_array = ak.Array(modified_x_list)
+    modified_y_array = ak.Array(modified_y_list)
+    modified_z_array = ak.Array(modified_z_list)
 
-    #   Squeeze null dimensions
-    r_out = np.squeeze(r_out)
+    # Concatenate arrays to form the final result
+    r_transformed = ak.concatenate([
+        modified_x_array[:, None, :], modified_y_array[:, None, :],
+        modified_z_array
+    ], axis=1)
 
-    return r_out
+    return r_transformed
+
 
 def cell_to_tile_coordinates(
         r_in,
