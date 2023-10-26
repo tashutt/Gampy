@@ -863,6 +863,7 @@ def find_struck_chips_hits(hits, params):
     returns hits['chip'], the index of chips struck.
 
     TODO[ts]: reconcile this will find_span in charge_readout_tools
+    TODO[bt]: Convert to awkward when needed
     """
 
     import numpy as np
