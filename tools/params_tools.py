@@ -42,8 +42,15 @@ def default_geomega_inputs(cell_geometry='rectangular'):
 
     inputs['acd'] = {'thickness': 0.007}
 
-    inputs['anode_planes'] = {'thickness': 0.005}
+    #changes by Sam to include params for shield and calorimenter
+    inputs['calorimeter'] = {}
+    inputs['calorimeter']['thickness'] = 0.0
 
+    inputs['shield'] = {}
+    inputs['shield']['thickness'] = 0.0
+    inputs['shield']['material'] = 'Lead'
+
+    inputs['anode_planes'] = {'thickness': 0.005}
     inputs['cathode_plane'] = {'thickness': 0.005}
 
     return inputs
