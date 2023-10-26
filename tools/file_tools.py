@@ -8,6 +8,11 @@ Colletion of tools to read .sim file and crate events
 Parsing has long list of problems / needed improvements - see comments
 
 @author: tshutt
+
+awkward implemented
+
+TODO 
+cell_r global <-> local coordinates
 """
 
 class Sim_File:
@@ -60,6 +65,7 @@ class Sim_File:
         Megalib units of cm and keV are preserved.
         """
 
+        import sys
         import numpy as np
         from collections import deque
 
@@ -123,6 +129,9 @@ class Sim_File:
         numstring = text_line[2:].split()
         event_info['triggered_event_id'] = int(numstring[0])
         event_info['simulated_event_id']= int(numstring[1])
+
+        if event_info['triggered_event_id'] == 6861:
+            print(event_info['triggered_event_id'])
 
         #   Event time
         text_line = self.f.readline().strip('\n')
@@ -248,7 +257,7 @@ class Sim_File:
             ht['energy'] = deque()
             ht['time'] = deque()
             ht['interaction_id'] = deque()
-            ht['interactions_ids'] = []
+            ht['interactions_id'] = []
 
             #   Loop over HTsim lines
             n = 0
@@ -279,17 +288,19 @@ class Sim_File:
                 ht['rz'].append(float(splitline[4]))
                 ht['energy'].append(float(splitline[5]))
                 ht['time'].append(float(splitline[6]))
+#TODO: THIS NEEDS TO DEAL WITH VECTOR HERE
                 ht['interaction_id'].append(int(splitline[7]))
-                ht['interactions_ids'].append(
+                ht['interactions_id'].append(
                     np.array(splitline[7:], dtype=int))
 
                 text_line = self.f.readline().strip('\n')
                 if text_line == '':
                     break
 
-            #   Convert lists to arrays, apart from interactions_idss
+            #   Convert ht structure to numpy
+#TODO: fix this monstrosity - and see just above
             for key in ht:
-                if key!='interactions_ids':
+                if key!='interactions_id':
                     ht[key] = np.array(ht[key])
 
             #   Assign HT to sim structure, if it exists
@@ -318,70 +329,26 @@ class Sim_File:
         Parses the raw event information in self.raw_event, returning
         self.parsed_event.
 
-        The information in the .sim is split between IA lines and HT lines.
-        The IA lines describe the interactions, while the HT lines keep
-        track of energy deposited by dE/dx "ionization".  Here we generate
-        truth_hits which have the locations of interactions (from the IA
-        lines) that result in charged particles (for gamma ray, this means
-        compton, photo, pair), and the total energy of the resulting tracks,
-        which is found by summing the energy HT lines corresponding to each
-        IA line.
-        The hits are listed in the order of the interactions - though
-        note the comlication described below when tracks spans multiple cells.
+        Adds up energy in HT lines, applying this to
+        interactions in IA lines.  Currently adds one layer of
+        clustering - identifies "x-rays" by energy only, and adds
+        them to parent.  This requires special handling when x-rays
+        created during bremstrahlung.
+        Also generates event quality booleans
 
-        There are several complications to interperting IA and HT lines
-        which are handled in this module:
+        Result is parsed_event, which is a list of only energy and initial
+        locations of what ideally are electron tracks (with associated
+        x-ray energies).  This is ready for vectoriztion to apply detector
+        response
 
-        When X-rays are absorbed, this creates a separate (photo)
-        interaction by Cosima, but given their tiny range, we here
-        add their energy to the correct parent interaction or track that
-        gave rise to the x-ray.
-        This takes several forms, as is detailed in comments below.
-        Similarly, low energy bremsstrahlung (defined with a
-        threshold hard coded in this routine) are also added to their
-        parent track.
+        The parsed event units are MKS and keV (Megalib's cm converted to m)
 
-        Another complication is tracks that span multiple cells.  This is
-        is a promient effect for incident charged paritcles, but also
-        happens with the electron recoil tracks from gamma ray interactions.
-        In this case the first hit is the interaction that gives rise
-        to the charged particle, and energy in additional cells is put into
-        new "hits" at the end of the hits arrays.
-
-        Note also that dE/dx ionizing energy deposition does not constitute
-        an "interaction", but is associated with the interaction that
-        generated the charged particle, e.g., a Compton scatter creating
-        an electron.  For incident charged particles, this corresponding
-        "interaction" id is 1, which is the event initialization. The type
-        of incident particle is in events.truth['incident_particle'],
-        for which events.meta['particle_num2str'] translates number
-        to particle. Gammas are id = 1.
-        events.truth['incident_charged_particle'] is a convenient boolean.
-
-        The results of this routine are packaged in in parsed_event
-
-        These variables keep track of mulit-cell tracks:
-            'multi_cell_interaction', a boolean which
-                is true for any interaction that splits into multiple cells
-            'interaction' - the interaction ID in the .sim file.
-                This value is the same for all hits generated by
-                multi-cell tracks, and refers to the original interaction.
-                multi_cell_interaction will be true only for that
-                original interaction.
-                In general 'interaction' is not a sequential list
-                (1, 2, 3 ...), but has missing interactions since many
-                IA line interactions have been droped because they had
-                no energy (e.g., pair production) or were x-rays or bream
-                whose energy was added to the parent interaction.
-
-        These variables provide information about cells
+        Cell information:
             cell - cell # for each hit, size(max_num_hits, num_events)
             cells_list - list of struck cells
             num_cells - number of sturck cells,
-            cell_index - hit index for cells_list
+            cell_index- hit index for cells_list
             cell_hit_count - number of hits in each cell
-
-        The parsed event units are MKS and keV (Megalib's cm converted to m)
 
         Note the spatial information in HT lines and IA lines are not
             consistent - HT lines are in cell coordinates.
@@ -390,13 +357,19 @@ class Sim_File:
             Capture polarizations
             Implement full (compressed) track output.  For incident
                 charged particles, and/or tracks above some energy
+            Test on many events, find and fix: scatters in, muli-cells not
+                from incident tracks, perhapsmore below in todos
             Two input parameters need to be handled: thresholds for
                 x-ray and brem merging.
             Test on high energy particles with "interesting" interactions
                 - i.e., muon, or pion creating
-            Consider merging x-rays and brem with parent track based on
-                spatial clustering instead of energy.  Could go further
-                and use only clustering in this module.
+            Clustering should probably also include check on
+                distance from parent.  Will need to fix HT/IA lines
+                position problem to do this.
+            Mismatch of total energy and .sim active energy in ~10^-3 events
+            The logic used here is a bit compliected, but still
+                too simple, and not very satisfactory - a more
+                general framework based on distances alone seems be better.
         """
 
         import sys
@@ -413,23 +386,14 @@ class Sim_File:
         fuss = False
         event_num = self.raw_event["event_info"]["triggered_event_id"]
 
-        if event_num==2798:
-            print(f'Event {event_num:d}')
-
-        #   Settings for processing - should possibly be supplied params
+        #   Settings for processign - should possibly be supplied params
         x_ray_energy_threshold = 4.0
         merged_brem_threshold = 10.0
 
-        #   Incident particle ID, energy, location and direction
-        #   extracted from first IA line.  The location - I think -
-        #   is where the particle is on the disk tangent to the
-        #   surrounding sphere:
+        #   Incident particle ID, energy and direction
+        #   extracted from first IA line:
         incident_particle = self.raw_event['ia']['particle_secondary'][0]
         incident_energy = self.raw_event['ia']['energies_secondary'][0]
-        incident_r = np.zeros((3,))
-        incident_r[0] = self.raw_event['ia']['rx'][0]
-        incident_r[1] = self.raw_event['ia']['ry'][0]
-        incident_r[2] = self.raw_event['ia']['rz'][0]
         incident_s = np.zeros((3,))
         incident_s[0] = self.raw_event['ia']['s_secondary_x'][0]
         incident_s[1] = self.raw_event['ia']['s_secondary_y'][0]
@@ -450,14 +414,12 @@ class Sim_File:
         types = self.raw_event['ia']['interaction_type']
         detectors = self.raw_event['ia']['detector']
 
-        #   Types and detectors of parents need finesse, since the
-        #   first entry, which is the init line, doesn't have a well
-        #   defined parent.
-        #   So we make new varibles, with first entry given value 0.
+        #   Types of parent needs finesse, since the first entry, which is
+        #   the init line, doesn't have a well defined parent.
+        #   So we make a variable for the parent of interactions, and
+        #   assign the first entry the value 0.
         parent_types = types[parents-1]
         parent_types[0] = 0
-        parent_detectors = detectors[parents-1]
-        parent_detectors[0] = 0
 
         #   Boolean for incident charged particle.  For now, everything
         #   except gammas and neutrons are charged particles
@@ -517,15 +479,14 @@ class Sim_File:
         #   Find energy in cells.   This is done by looping over all
         #   interactions that created particles which deposit energy via
         #   dE/dx, and summing the energy in HT lines associated with those
-        #   inteactions.  This gets messy to deal with tracks depositing
-        #   energy over multiple cells.
+        #   inteactions.
 
         #   This restricts interactions to those that make HT energy.
         #   HT energy only comes from pair, compton, photo, and incident
         #   charged particles.
-        #   This mask doesn't insist on active material, as the track
-        #   can enter an active region, and does not distinguish
-        #   detector types (e.g., cells vs calorimeter)
+        #   We don't insist on active material, as the track can enter
+        #   an active region.
+        #   This is not where we distinguish cells and detector regions
         interaction_mask = (
             ((types == 1) & incident_charged_particle)
             | (types == 2)
@@ -533,7 +494,7 @@ class Sim_File:
             | (types == 4)
             )
 
-        #   Arrays for energies and cell(s) of each interaction
+        #   These are energy and cell(s) of each interaction
         energies = np.zeros(len(interactions), dtype=float)
         cells = np.zeros(len(interactions), dtype=int)
 
@@ -614,8 +575,6 @@ class Sim_File:
                     #   This doesn't apply to initial charge particles, which
                     #   don't have an interaction.  Possibly the natural
                     #   order of the HT lines makes this unnecessary.
-                    #   TODO: check if distance test is needed, and remove
-                    #   if not
                     if ni != 0:
                         r_int = np.zeros(3, dtype=float)
                         r_int[0] = self.raw_event['ia']['rx'][ni]
@@ -626,12 +585,6 @@ class Sim_File:
                             geo_params.cells['centers']
                             [:, all_cells-1].T - r_int).T
                             )**2).sum(axis=0)).argmin()])
-                        if interaction_cell == 0:
-                            print('Correct interaction split cell, '
-                                  + f'event {event_num:d}')
-                        else:
-                            print('Incorrect interaction split cell, '
-                                  + f'event {event_num:d}')
                         split_cells[ni].remove(interaction_cell)
                         split_cells[ni].insert(0, interaction_cell)
                         if fuss:
@@ -719,7 +672,8 @@ class Sim_File:
             print(f'   total: {acd_energy:5.3f} keV')
             print(f'All energy: {all_energy:5.3f} keV')
 
-        if blab: blab_first()
+        if blab:
+            blab_first()
 
         #   We now have to sort out x-rays and low energy brem that should
         #   be merged with the parent tracks or interactions.  This is
@@ -735,14 +689,12 @@ class Sim_File:
         #       photo-absorption
         #       an incident charged particle
         #
-        #   X-rays are produced both at a photo-absorption interactions,
-        #       by the photo-absorbing atom,
-        #       and also along charged particle tracks. Note that for
-        #       incident charged particles the "interaction" is 1, the
-        #       inititalization interaction.
+        #   X-rays are produced both by the intial atom of photo-absorption,
+        #       and also along charged particle tracks, which the parent
+        #       charged particle is not an "interation"
         #
         #   Note that for Cosima the secondary gamma in compton scatters
-        #       is the same as the initial.  Hence the only "daughter"
+        #       is the same as the initial.  Hence the only daughter
         #       of compton scatterings is e-, and not a gamma.
         #
         #   With that said, the are three types of low energy gamma rays
@@ -752,19 +704,16 @@ class Sim_File:
         #       interaction.  Note, this doesn't distinguish between
         #       x-rays produced along the resulting track, or produced
         #       at the interaction site.  The energy is assigned to parent
-        #       interaction, as long as the parent interaction was in
-        #       an active material (otherwise the X-ray remains a separate
-        #       interaction)
+        #       interaction.
         #   2. x-rays which sequentially follow a photo-absorption, but
         #       are not tagged as their children - perhaps erroneously.
-        #       These have the same parent as photo-absorption, and
-        #       that parent is a photon (to distinguish this
+        #       These must have the same parent as photo-absorption, and
+        #       that parent must be a photon (to distinguish this
         #       from x-rays from charged particle tracks).
         #       Energy is added to the photo-absorption interaction.
-        #   3. photo-abosorbed brem photon with sufficiently low energy
+        #   3. photo-abosorption after brem at sufficiently low energy
         #       that it should be merged with track that procuced brem.
-        #       Assign to the interaction with generated the track, i.e.,
-        #       the grandparent interaction of the photo-absorption.
+        #       This is the grandparent interaction of the photo-absorption.
         #
         #   Interaction codes:
         #       INIT = 1
@@ -779,7 +728,6 @@ class Sim_File:
         #      + photoabsorption
         #      + parent interaction creates tracks - pari, comp, photo, or
         #         incident charged particle
-        #      + parent detectors is active - otherwise is orphaned x-ray
         child_x_rays = interactions[
             (0.0 < energies) & (energies < x_ray_energy_threshold)
             & (types == 4)
@@ -787,7 +735,6 @@ class Sim_File:
                 | (parent_types == 3)
                 | (parent_types == 4)
                 | ((parent_types == 1) & (incident_particle != 1)))
-            & (parent_detectors != 0)
             ]
         #   Add energy to track by looping over parents.  Deal with
         #   split cell parents
@@ -804,12 +751,14 @@ class Sim_File:
                         & (cells[child_x_rays-1] == cell)
                         ]-1].sum()
 
-        if blab: blab_on('child x rays added')
+        if blab:
+            blab_on('child x rays added')
 
         #   Zero the merged energy
         energies[child_x_rays-1] = 0
 
-        if blab: blab_on('child x rays zeroed')
+        if blab:
+            blab_on('child x rays zeroed')
 
         #   Following x-rays:
         #       + energy less than pre-defined threshold, but > 0
@@ -881,12 +830,14 @@ class Sim_File:
                             & (cells[merged_brem_photo-1] == cell)
                             ]-1].sum()
 
-        if blab: blab_on('merged brem merged')
+        if blab:
+            blab_on('merged brem merged')
 
         #   Zero the merged energy
         energies[merged_brem_photo-1] = 0
 
-        if blab: blab_on('merged brem zeroed')
+        if blab:
+            blab_on('merged brem zeroed')
 
         #TODO: remove these checks after testing
         if energies[types==5].sum()>0:
@@ -911,9 +862,9 @@ class Sim_File:
         multi_cell_interactions_mask = multi_cell_interactions_mask[~remove]
         detectors = detectors[~remove]
 
-        if blab: blab_last()
+        if blab:
+            blab_last()
 
-        #   Now, with reduced set of interactions to keep, find
         #   Locations and vectors for these interactions
         r = np.zeros((3, interactions.size), dtype=float)
         r[0, :] = self.raw_event['ia']['rx'][interactions-1]
@@ -1006,8 +957,6 @@ class Sim_File:
         cells = np.append(cells, int_zeros)
         multi_cell_interactions_mask \
             = np.append(multi_cell_interactions_mask, bool_zeros)
-        scatters_in_mask \
-            = np.append(scatters_in_mask, bool_zeros)
 
         #   Loop over multi-cell interactions, and add split cells
         ni = pre_append_length - 1
@@ -1066,9 +1015,9 @@ class Sim_File:
                 - (energies.sum() + front_acd_energy + back_acd_energy))
             print(f'Error, event {event_num:d}: energy non-conservation of '
                   + f'{energy_difference:5.3f} keV')
-        if abs(deposited_energy - total_energy) > 0.5:
-            sys.exit('Error: active energy not HT sum, event '
-                     + str(event_num))
+        # if abs(deposited_energy - total_energy) > 0.5:
+        #     sys.exit('Error: active energy not HT sum, event '
+        #              + str(event_num))
 
         #   Package output
         parsed_event = {}
@@ -1078,7 +1027,6 @@ class Sim_File:
         parsed_event['incident_particle'] = incident_particle
         parsed_event['incident_charged_particle'] \
             = incident_charged_particle
-        parsed_event['incident_r'] = incident_r
         parsed_event['incident_s'] = incident_s
         parsed_event['total_energy'] = total_energy
         parsed_event['front_acd_energy'] = front_acd_energy
@@ -1105,23 +1053,16 @@ class Sim_File:
         parsed_event['interaction_type'] = types
         parsed_event['interaction'] = interactions
         parsed_event['multi_cell_interaction'] = multi_cell_interactions_mask
-        parsed_event['scatters_in_mask'] = scatters_in_mask
 
         #   These are per struck cell information
         parsed_event['cells_list'] = cells_list
         parsed_event['cell_hit_count'] = cell_hit_count
 
+
         #   Assign to self
         self.parsed_event = parsed_event
 
     def summarize_event(self, only_problems=False):
-        """
-        New, hopefully faster replacement for tree builder and
-        display below.
-
-        Unfinishe: need to display graph, and also probably use graph
-        for stuff above that, which also probably needs overhaul.
-        """
 
         import numpy as np
         import copy
@@ -1179,15 +1120,15 @@ class Sim_File:
                     + f'E = {etot:9.1f} keV'
                     )
 
-        for (iid, interactions_ids) in zip(
+        for (iid, interactions_id) in zip(
                 range(self.raw_event['ht']['interaction_id'].size),
-                self.raw_event['ht']['interactions_ids']
+                self.raw_event['ht']['interactions_id']
                 ):
-            if interactions_ids.size>1:
+            if interactions_id.size>1:
                 print(
                     '   '
                     + f'HT line {iid+1:3d}, interactions = '
-                    + str(interactions_ids)
+                    + str(interactions_id)
                     )
 
         #   Adapted from:
@@ -1219,6 +1160,41 @@ class Sim_File:
         tree = traverse({}, graph, roots)
 
         return tree
+
+    def build_tree(self):
+
+        #   attempt to use lists instead of dictionaries - for speed, is
+        #   idea, but not sure it matters
+
+        import copy
+
+        #   Adapted from:
+        #   https://stackoverflow.com/questions/45460653/
+        #   given-a-flat-list-of-parent-child-create-
+        #   a-hierarchical-dictionary-tree
+
+        kids = copy.copy(self.raw_event['ia']['interaction_id'])
+        parents = self.raw_event['ia']['parent_interaction_id']
+
+        lst = [(parent, child) for (parent, child) in zip(parents, kids)]
+
+        num = kids.size + 1
+
+        #   This was called a "directed graph" in the source linked above
+        children = [set() for n in range(num)]
+
+        for parent, child in lst:
+            children[parent].add(child)
+
+        # traversal of the graph (doesn't care about duplicates and cycles)
+        def traverse(hierarchy, children, inters):
+            for inter in inters:
+                hierarchy[inter] = traverse({}, children, children[inter])
+            return hierarchy
+
+        tree = traverse({}, children, [0])
+
+        return children, tree
 
     def make_event_tree(self):
         """
@@ -1426,364 +1402,193 @@ class Sim_File:
         #   Recursively blab about secondaries
         dig_down(self, startindex, 1)
 
+
+
+######## Helper functions ##########
+def calculate_theta(s_primary, incident_s):
+    import numpy as np
+    if len(s_primary[0]) == 0:
+        return np.nan
+    return np.arccos(np.dot(s_primary.T[0], incident_s))
+
+
+def calculate_z_drift(geo_params, r, cell):
+    import numpy as np
+    front_term = ((geo_params.cells['height'] / 2 +
+                   geo_params.z_centers['front_cells'] - r[2, :]) *
+                  geo_params.cells['front_layer'][cell - 1])
+    back_term = ((geo_params.cells['height'] / 2 -
+                  geo_params.z_centers['back_cells'] + r[2, :]) *
+                 geo_params.cells['back_layer'][cell - 1])
+    z_drift = front_term + back_term
+    return z_drift
+
+
 def read_events_from_sim_file(full_file_name,
                               geo_params=None,
-                              num_events_to_read=1e10
-                              ):
-    """
-    Opens .sim file and reads and parses all events to create hits, which
-    are (ideally) separate electron recoil tracks.
+                              num_events_to_read=1e10):
 
-    These are then put into a "flattened" set of arrays for vectorized
-    calculations.  This is returned as the diciontaries 'truth', which is
-    per event information, and 'truth_hits', which is mostly
-    quanities of dimension [num_hits, num_events] but also include per
-    struck cell information
-
-    In most cases, this is intended to be called by events_tools
-    instead of directly by the user.
-
-    TODO clean up the poorly thought out use of copy, and replace the
-        matrix representation with awkward structures
-    """
-
-    import geometry_tools
-    from math_tools import dot
-
-    import numpy as np
-    import copy
-
-    #   Prep lists
-
-    #   Per event information
-    time_list = []
-    triggered_id_list = []
-    incident_energy_list = []
-    incident_particle_list = []
-    incident_charged_particle_list = []
-    incident_r_list = []
-    incident_s_list = []
-    total_energy_list = []
-    escaped_energy_list = []
-    passive_energy_list = []
-    front_acd_energy_list = []
-    back_acd_energy_list = []
-    track_energy_list = []
-    clean_entrance_list = []
-    entrance_scatter_energy_list = []
-    missing_energy_list = []
-    missing_energy_after_entrance_list = []
-    num_rayleigh_list = []
-    num_brem_list = []
-    escaped_back_energy_list = []
-    escaped_through_energy_list = []
-    num_cells_list = []
-    num_hits_list = []
-
-    #   Per hit information
-    energy_list = []
-    r_list = []
-    s_primary_list = []
-    s_secondary_list = []
-    cell_list = []
-    cell_index_list = []
-    interaction_type_list = []
-    interaction_list = []
-    multi_cell_interaction_list = []
-
-    #   Per struck cell information
-    cells_list_list = []
-    cell_hit_count_list = []
-
-    #   Open file
     sim_file = Sim_File(full_file_name)
 
-    # Read all events, put hit variables for each into long list
-    for n in range(round(num_events_to_read)):
+    import awkward as ak
+    import numpy as np
+    import geometry_tools
 
-        #   Load next event
+    # Initialize lists to store per-event and per-hit data
+    truth_list = []
+    truth_hits_list = []
+
+    for n in range(int(num_events_to_read)):
         sim_file.read_next_event()
 
-        #   Skips events with no active energy deposited.
-        #   Probably need to do something with skipped events
         if sim_file.good_event:
+            try:
+                sim_file.parse_raw_event(geo_params)
+            except:
+                print(f"ERROR, skipping {n}")
+                continue
 
-            #   Parse event
-            sim_file.parse_raw_event(geo_params)
+            # Per event information
+            truth_event = {
+                'time':
+                sim_file.raw_event['event_info']['time'],
+                'triggered_id':
+                sim_file.raw_event['event_info']['triggered_event_id'],
+                'incident_energy':
+                sim_file.parsed_event['incident_energy'],
+                'incident_particle':
+                sim_file.parsed_event['incident_particle'],
+                'incident_charged_particle':
+                sim_file.parsed_event['incident_charged_particle'],
+                'incident_s':
+                sim_file.parsed_event['incident_s'],
+                'total_energy':
+                sim_file.parsed_event['total_energy'],
+                'escaped_energy':
+                sim_file.raw_event['event_info']['escaped_energy'],
+                'passive_energy':
+                sim_file.raw_event['event_info']['passive_energy'],
+                'front_acd_energy':
+                np.sum(sim_file.parsed_event['front_acd_energy']),
+                'back_acd_energy':
+                np.sum(sim_file.parsed_event['back_acd_energy']),
+                'track_energy':
+                np.sum(sim_file.parsed_event['track_energy']),
+                'clean_entrance':
+                sim_file.parsed_event['clean_entrance'],
+                'entrance_scatter_energy':
+                sim_file.parsed_event['entrance_scatter_energy'],
+                'missing_energy':
+                sim_file.parsed_event['missing_energy'],
+                'missing_energy_after_entrance':
+                sim_file.parsed_event['missing_energy_after_entrance'],
+                'num_rayleigh':
+                sim_file.parsed_event['num_rayleigh'],
+                'num_brem':
+                sim_file.parsed_event['num_brem'],
+                'escaped_back_energy':
+                sim_file.parsed_event['escaped_back_energy'],
+                'escaped_through_energy':
+                sim_file.parsed_event['escaped_through_energy'],
+                'num_hits':
+                len(sim_file.parsed_event['energy']),
+                'num_cells':
+                sim_file.parsed_event['num_cells']
+            }
 
-            #   Per event information
-            time_list.append(
-                copy.copy(sim_file.raw_event['event_info']['time']))
-            triggered_id_list.append(
-                copy.copy(
-                    sim_file.raw_event['event_info']['triggered_event_id']))
-            incident_energy_list.append(
-                copy.copy(
-                    sim_file.parsed_event['incident_energy']))
-            incident_particle_list.append(
-                copy.copy(
-                    sim_file.parsed_event['incident_particle']))
-            incident_charged_particle_list.append(
-                copy.copy(
-                    sim_file.parsed_event['incident_charged_particle']))
-            incident_r_list.append(
-                copy.copy(sim_file.parsed_event['incident_r']))
-            incident_s_list.append(
-                copy.copy(sim_file.parsed_event['incident_s']))
-            total_energy_list.append(
-                copy.copy(sim_file.parsed_event['total_energy']))
-            escaped_energy_list.append(
-                copy.copy(sim_file.raw_event['event_info']['escaped_energy']))
-            passive_energy_list.append(
-                copy.copy(sim_file.raw_event['event_info']['passive_energy']))
-            front_acd_energy_list.append(
-                np.sum(sim_file.parsed_event['front_acd_energy']))
-            back_acd_energy_list.append(
-                np.sum(sim_file.parsed_event['back_acd_energy']))
-            track_energy_list.append(
-                np.sum(sim_file.parsed_event['track_energy']))
-            clean_entrance_list.append(
-                copy.copy(sim_file.parsed_event['clean_entrance']))
-            entrance_scatter_energy_list.append(
-                copy.copy(sim_file.parsed_event['entrance_scatter_energy']))
-            missing_energy_list.append(
-                copy.copy(sim_file.parsed_event['missing_energy']))
-            missing_energy_after_entrance_list.append(
-                copy.copy(sim_file.parsed_event[
-                    'missing_energy_after_entrance'
-                    ]))
-            num_rayleigh_list.append(
-                copy.copy(sim_file.parsed_event['num_rayleigh']))
-            num_brem_list.append(
-                copy.copy(sim_file.parsed_event['num_brem']))
-            escaped_back_energy_list.append(
-                copy.copy(sim_file.parsed_event['escaped_back_energy']))
-            escaped_through_energy_list.append(
-                copy.copy(sim_file.parsed_event['escaped_through_energy']))
-            num_hits_list.append(
-                len(sim_file.parsed_event['energy']))
-            num_cells_list.append(
-                copy.copy(sim_file.parsed_event['num_cells']))
+            truth_hits_event = {
+                'energy':
+                sim_file.parsed_event['energy'],
+                'r':
+                sim_file.parsed_event['r'],
+                's_primary':
+                sim_file.parsed_event['s_primary'],
+                's_secondary':
+                sim_file.parsed_event['s_secondary'],
+                'cell':
+                sim_file.parsed_event['cell'],
+                'cell_index':
+                sim_file.parsed_event['cell_index'],
+                'interaction_type':
+                sim_file.parsed_event['interaction_type'],
+                'interaction':
+                sim_file.parsed_event['interaction'],
+                'multi_cell_interaction':
+                sim_file.parsed_event['multi_cell_interaction'],
+                'cells_list':
+                sim_file.parsed_event['cells_list'],
+                'cell_hit_count':
+                sim_file.parsed_event['cell_hit_count']
+            }
 
-            #   Per hit information
-            energy_list.append(
-                copy.copy(sim_file.parsed_event['energy']))
-            r_list.append(
-                copy.copy(sim_file.parsed_event['r']))
-            s_primary_list.append(
-                copy.copy(sim_file.parsed_event['s_primary']))
-            s_secondary_list.append(
-                copy.copy(sim_file.parsed_event['s_secondary']))
-            cell_list.append(
-                copy.copy(sim_file.parsed_event['cell']))
-            cell_index_list.append(
-                copy.copy(sim_file.parsed_event['cell_index']))
-            interaction_type_list.append(
-                copy.copy(sim_file.parsed_event['interaction_type']))
-            interaction_list.append(
-                copy.copy(sim_file.parsed_event['interaction']))
-            multi_cell_interaction_list.append(
-                copy.copy(sim_file.parsed_event['multi_cell_interaction']))
+            # calculated information
+            truth_event['theta'] = calculate_theta(
+                truth_hits_event['s_primary'], truth_event['incident_s'])
 
-            #   Per struck cell information
-            cells_list_list.append(
-                copy.copy(sim_file.parsed_event['cells_list']))
-            cell_hit_count_list.append(
-                copy.copy(sim_file.parsed_event['cell_hit_count']))
+            truth_hits_event["z_drift"] = calculate_z_drift(
+                geo_params, truth_hits_event['r'], truth_hits_event['cell'])
 
-        #   Reached end of file
+            truth_list.append(truth_event)
+            truth_hits_list.append(truth_hits_event)
+
         if sim_file.raw_event['end_of_file']:
             break
 
-    #   Check that anything is present
-    if not num_hits_list:
-        print('Error in parse_and_flatten_sim_file: no valid events')
-        return
-
-    #   Per event information - create array from list directly
-    time = np.array(time_list)
-    triggered_id = np.array(triggered_id_list)
-    incident_energy = np.array(incident_energy_list)
-    incident_particle = np.array(incident_particle_list)
-    incident_charged_particle = np.array(incident_charged_particle_list)
-    incident_r = np.array(incident_r_list).T
-    incident_s = np.array(incident_s_list).T
-    total_energy = np.array(total_energy_list)
-    escaped_energy = np.array(escaped_energy_list)
-    passive_energy = np.array(passive_energy_list)
-    front_acd_energy = np.array(front_acd_energy_list)
-    back_acd_energy = np.array(back_acd_energy_list)
-    track_energy = np.array(track_energy_list)
-    clean_entrance = np.array(clean_entrance_list)
-    entrance_scatter_energy = np.array(entrance_scatter_energy_list)
-    missing_energy = np.array(missing_energy_list)
-    missing_energy_after_entrance \
-        = np.array(missing_energy_after_entrance_list)
-    num_rayleigh = np.array(num_rayleigh_list)
-    num_brem = np.array(num_brem_list)
-    escaped_back_energy = np.array(escaped_back_energy_list)
-    escaped_through_energy = np.array(escaped_through_energy_list)
-    num_cells = np.array(num_cells_list)
-    num_hits = np.array(num_hits_list)
-
-    #   Per hit information requires more work.
-
-    #   Maximum nubmer of hits and cells used below
-    max_hits = max(num_hits)
-    max_cells = max(num_cells)
-
-    #   Initialize arrays
-    energy = np.zeros((max_hits, len(time)))
-    r = np.zeros((3, max_hits, len(time)))
-    s_primary = np.zeros((3, max_hits, len(time)))
-    s_secondary = np.zeros((3, max_hits, len(time)))
-    cell = np.zeros((max_hits, len(time)), dtype=int)
-    cell_index = np.zeros((max_hits, len(time)), dtype=int)
-    interaction_type = np.zeros((max_hits, len(time)), dtype=int)
-    interaction = np.zeros((max_hits, len(time)), dtype=int)
-    multi_cell_interaction = np.zeros((max_hits, len(time)), dtype=bool)
-    alive  = np.zeros((max_hits, len(time)), dtype=bool)
-
-    cells_list = np.zeros((max_cells, len(time)), dtype=int)
-    cell_hit_count = np.zeros((max_cells, len(time)), dtype=int)
-
-    #   Loop over events, adding to "active" part of array.
-    #   Is there a vectorized way to do this?
-    for ne in range(len(energy_list)):
-        energy[:num_hits[ne], ne] = energy_list[ne]
-        r[:, :num_hits[ne], ne] = r_list[ne]
-        s_primary[:, :num_hits[ne], ne] = s_primary_list[ne]
-        s_secondary[:, :num_hits[ne], ne] = s_secondary_list[ne]
-        cell[:num_hits[ne], ne] = cell_list[ne]
-        cell_index[:num_hits[ne], ne] = cell_index_list[ne]
-        alive[:num_hits[ne], ne] = True
-        interaction_type[:num_hits[ne], ne] = interaction_type_list[ne]
-        interaction[:num_hits[ne], ne] = interaction_list[ne]
-        multi_cell_interaction[:num_hits[ne], ne] \
-            = multi_cell_interaction_list[ne]
-
-        cells_list[:num_cells[ne], ne] = cells_list_list[ne]
-        cell_hit_count[:num_cells[ne], ne] = cell_hit_count_list[ne]
-
-    #   Construct drift distance - front cells should have positive z,
-    #   back cells have negative.
-    z_drift = (
-        (geo_params.cells['height'] / 2
-         +  geo_params.z_centers['front_cells']
-         - r[2, :, :]) * geo_params.cells['front_layer'][cell - 1]
-        + (geo_params.cells['height'] / 2
-         -  geo_params.z_centers['back_cells']
-         + r[2, :, :]) * geo_params.cells['back_layer'][cell - 1]
-        )
-    z_drift[~alive] = 0
-
-    #   Calculate "true" theta - from geometry of incident and first
-    #   scattered vectors
-    theta = np.arccos(dot(incident_s, s_primary[:, 0, :]))
-
-    #   Packag output.
-    #   Per event information goes into "truth" dictionary.
-    #   Per hit, and per cell information goes into "truth_hits" dictionary
-    #   Note that per cell information is awkwardly put in truth_hits.
-    truth = {}
-    truth['time'] = time
-    truth['triggered_id'] = triggered_id
-    truth['incident_energy'] = incident_energy
-    truth['incident_particle'] = incident_particle
-    truth['incident_charged_particle'] = incident_charged_particle
-    truth['incident_r'] = incident_r
-    truth['incident_s'] = incident_s
-    truth['total_energy'] = total_energy
-    truth['escaped_energy'] = escaped_energy
-    truth['passive_energy'] = passive_energy
-    truth['front_acd_energy'] = front_acd_energy
-    truth['back_acd_energy'] = back_acd_energy
-    truth['track_energy'] = track_energy
-    truth['clean_entrance'] = clean_entrance
-    truth['entrance_scatter_energy'] = entrance_scatter_energy
-    truth['missing_energy'] = missing_energy
-    truth['missing_energy_after_entrance'] \
-        = missing_energy_after_entrance
-    truth['num_rayleigh'] = num_rayleigh
-    truth['num_brem'] = num_brem
-    truth['escaped_back_energy'] = escaped_back_energy
-    truth['escaped_through_energy'] = escaped_through_energy
-    truth['num_cells'] = num_cells
-    truth['num_hits'] = num_hits
-    truth['theta_geometry'] = theta
-
-    truth_hits = {}
-    truth_hits['energy'] = energy
-    truth_hits['r'] = r
-    truth_hits['s_primary'] = s_primary
-    truth_hits['s_secondary'] = s_secondary
-    truth_hits['cell'] = cell
-    truth_hits['cell_index'] = cell_index
-    truth_hits['interaction_type'] = interaction_type
-    truth_hits['interaction'] = interaction
-    truth_hits['multi_cell_interaction'] = multi_cell_interaction
-    truth_hits['z_drift'] = z_drift
-    truth_hits['alive'] = alive
-
-    truth_hits['cells_list'] = cells_list
-    truth_hits['cell_hit_count'] = cell_hit_count
-
-    #   Generate locations in cell coordinates
-    truth_hits['r_cell'] = geometry_tools.global_to_cell_coordinates(
-        truth_hits['r'],
-        truth_hits['cell'],
-        geo_params,
-        alive = truth_hits['alive']
-        )
-
-    #   Meta data from the last read sim events
+    # Convert lists of dictionaries to awkward arrays
+    truth = ak.Array(truth_list)
+    truth_hits = ak.Array(truth_hits_list)
+    r_cell = geometry_tools.global_to_cell_coordinates(truth_hits['r'],
+                                                       truth_hits['cell'],
+                                                       geo_params,
+                                                       reverse=False)
+    truth_hits['r_cell'] = r_cell
     meta = sim_file.raw_event['meta']
-
     return truth, truth_hits, meta
 
+
+
+
+
+import os
+import sys
+import pickle
+
 def write_events_file(events, full_sim_file_name):
-        """
-        Saves events t disk, in two .h5s and a  .picckle.
+    """
+    Saves events to disk, in two .h5s and a .pickle.
 
-        full_file_stub includes path but not extension
+    full_file_stub includes path but not extension
 
-        11/12/21 TS
-        """
+    11/12/21 TS
+    """
 
-        import os
-        import sys
-        import deepdish as dd
-        import pickle
+    # Check that the file name is the same as stored in meta data
+    path, file_name = os.path.split(full_sim_file_name)
+    if file_name != events.meta['sim_file_name']:
+        sys.exit('Error in write_events_file - output name '
+                 + "does not match meta['sim_file_name']")
 
-        #   Check that file name is same as stored in meta data
-        path, file_name = os.path.split(full_sim_file_name)
-        if file_name!=events.meta['sim_file_name']:
-            sys.exit('Error in write_events_file - output name '
-                     + "does not match meta['sim_file_name']")
+    # Save meta structure as a pickle
+    with open(os.path.join(
+            full_sim_file_name
+            + '.meta' + '.pickle'
+    ), 'wb') as f:
+        pickle.dump(events.meta, f)
 
-        #   Save meta structure as pickle
-        with open(os.path.join(
-                full_sim_file_name
-                + '.meta' + '.pickle'
-                ),
-                'wb') as f:
-            pickle.dump(events.meta, f)
+    # Save events.truth to .pickle file
+    with open(os.path.join(
+            full_sim_file_name
+            + '.truth' + '.pickle'
+    ), 'wb') as f:
+        pickle.dump(events.truth, f)
 
-        #   Save events.truth to .h5 file
-        dd.io.save(
-            os.path.join(
-                full_sim_file_name
-                + '.truth' + '.h5'
-                ),
-            events.truth)
+    # Save events.truth_hits to .pickle file
+    with open(os.path.join(
+            full_sim_file_name
+            + '.truth_hits' + '.pickle'
+    ), 'wb') as f:
+        pickle.dump(events.truth_hits, f)
 
-        #   Save events.truth to .h5 file
-        dd.io.save(
-            os.path.join(
-                full_sim_file_name
-                + '.truth_hits' + '.h5'
-                ),
-            events.truth_hits)
 
 def read_events_file(full_file_name):
     """
@@ -2186,3 +1991,5 @@ def add_evta_file_names(file_names, events):
 
 
 
+
+# %%
