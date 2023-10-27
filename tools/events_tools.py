@@ -138,6 +138,86 @@ class Events:
         # #   Save parameters used in meta data
         # self.meta['params'] = params
 
+    def pileup_analysis(self, drift_len_via_diffusion_enabled=0):
+        """ 
+        Add a boolean to events.measured that describes if the measured energy 
+        will be confused with a hit from another event.
+
+        TO consider: should this be implemented on the truth hits too?
+        """
+        import awkward as ak
+        import numpy as np
+        
+        drift_est_acc = 0.02
+        
+        if 'measured_hits' not in self.__dict__:
+            self.apply_detector_response()
+        
+        num_of_events = len(self.measured_hits['total_energy'])
+        num_of_hits_in_event = ak.num(self.measured_hits['energy'])
+        velocity = self.params.charge_drift['velocity']
+        
+        time_allocation = self._compute_time_allocation(
+            drift_len_via_diffusion_enabled, num_of_events, 
+            num_of_hits_in_event, velocity)
+        
+        self.measured_hits['pileup_detected'] = self._compute_pileup_flag(time_allocation)
+
+    def _compute_time_allocation(self, drift_enabled, num_events, num_hits, velocity):
+        allocation = {}
+        
+        for event_number in range(num_events):
+            if num_hits[event_number] > 0:
+                hit_time = self.truth["time"][event_number]
+                affected_cells = self.truth_hits["cell"][event_number]
+                z_drifts = self.truth_hits["z_drift", event_number]
+                drift_times = z_drifts / velocity
+                
+                for i, hit_cell_index in enumerate(affected_cells):
+                    timeframe = self._compute_timeframe(drift_enabled, hit_time, drift_times[i])
+                    allocation.setdefault(event_number, {}).setdefault(hit_cell_index, []).append(timeframe)
+        
+        return allocation
+
+    def _compute_timeframe(self, drift_enabled, hit_time, drift_time):
+        delta_t = 0 if not drift_enabled else min(self.drift_est_acc / self.velocity, drift_time)
+        return (hit_time, hit_time + drift_time + delta_t)
+
+    def _compute_pileup_flag(self, time_allocation):
+        import awkward as ak
+        import numpy as np
+        
+        pileup_flag = []
+
+        for event_id, cell_hits in time_allocation.items():
+            event_has_overlap = any(
+                self._check_overlap(time_allocation, event_id, cell_id, hit_start, hit_end)
+                for cell_id, hit_timeframes in cell_hits.items()
+                for hit_start, hit_end in hit_timeframes
+            )
+            
+            if event_has_overlap:
+                pileup_flag.append(True)
+            else:
+                pileup_flag.append(False)
+                print(f"Seen a {event_id} gamma!")
+
+        return ak.Array(pileup_flag)
+
+    def _check_overlap(self, event_hits, event_id, cell_id, beg0, end0):
+        import awkward as ak
+        import numpy as np
+        
+        events = {k: v for k, v in event_hits.items() if k != event_id and cell_id in v}
+        if not events:
+            return False
+        
+        timings = np.concatenate([events[e][cell_id] for e in events], axis=0)
+        overlaps = np.logical_and((beg0 < timings[:, 1]), (end0 > timings[:, 0]))
+
+        return np.any(overlaps)
+   
+
     def write_evta_file(self, evta_version='100'):
         """ Writes events structure into evta file """
 
