@@ -42,6 +42,7 @@ class Events:
 
         import file_tools
         import params_tools
+        import awkward as ak
 
         #   If .h5 files present, read those
         if os.path.isfile(full_sim_file_name + '.truth' + '.h5') \
@@ -86,7 +87,7 @@ class Events:
                 = os.path.split(full_sim_file_name)
             _, self.meta['geo_file_name'] \
                 = os.path.split(full_geo_file_name)
-            self.meta['num_events'] = self.truth['num_hits'].size
+            self.meta['num_events'] = ak.num(self.truth['num_hits'], axis=0)
             self.meta['geo_params'] = geo_params
 
             #   Write .h5 files
@@ -146,7 +147,7 @@ class Events:
 
     def calculate_order(self,
                            num_hits_list,
-                           mask=None,
+                           cut=None,
                            use_truth_hits=False
                            ):
         """ Calculates hit order using ckd method only.
@@ -157,15 +158,15 @@ class Events:
 
         import reconstruction_tools
 
-        if mask is None:
-            mask = np.ones(self.truth['num_hits'].shape, dtype=bool)
+        if cut is None:
+            cut = np.ones(self.truth['num_hits'].shape, dtype=bool)
         #   Calculate from truth hits
 
         #   Calculate from truth hits
         self.truth_hits['order'] = reconstruction_tools.calculate_order(
             self.truth_hits,
             num_hits_list,
-            mask=mask
+            cut=cut
             )
 
         #   Calculate from measured hits, if present
@@ -174,7 +175,7 @@ class Events:
                 = reconstruction_tools.calculate_order(
                     self.measured_hits,
                     num_hits_list,
-                    mask=mask
+                    cut=cut
                     )
 
     def calculate_pointing(self):
@@ -241,13 +242,13 @@ class Events:
             return  np.sum(a * b, axis=0)
 
         #   Exclude missing energy event
-        mask = ~self.truth['missing_energy']
+        cut = ~self.truth['missing_energy']
 
         #   Measured pointing
-        measured_theta = np.zeros(mask.shape)
-        measured_ray = np.zeros((3, mask.size))
-        measured_energy = np.zeros(mask.shape)
-        measured_total_energy = np.zeros(mask.shape)
+        measured_theta = np.zeros(cut.shape)
+        measured_ray = np.zeros((3, cut.size))
+        measured_energy = np.zeros(cut.shape)
+        measured_total_energy = np.zeros(cut.shape)
         measured_pointing \
             = reconstruction_tools.construct_pointing_truth_order(
             self.measured_hits
@@ -262,8 +263,8 @@ class Events:
             = measured_pointing['energy']['total']
 
         #   True ray and theta
-        truth_theta = np.zeros(mask.shape)
-        truth_ray = np.zeros((3, mask.size))
+        truth_theta = np.zeros(cut.shape)
+        truth_ray = np.zeros((3, cut.size))
         truth_pointing \
             = reconstruction_tools.construct_pointing_truth_order(
                 self.truth_hits
@@ -271,8 +272,8 @@ class Events:
         truth_theta[truth_pointing['success']] = truth_pointing['theta']
         truth_ray[:, truth_pointing['success']] = truth_pointing['ray']
 
-        #   Update mask to include successful measure and truth pointing
-        mask = mask & truth_pointing['success'] & measured_pointing['success']
+        #   Update cut to include successful measure and truth pointing
+        cut = cut & truth_pointing['success'] & measured_pointing['success']
 
         #   Calculate cones
         cones = {}
@@ -281,15 +282,15 @@ class Events:
         #   Geometry error is opening angle between true and measured rays,
         #   measured ray is pointing.ray
         cones['dtheta']['geometry'] = np.arccos(
-            dot(measured_ray[:, mask], truth_ray[:, mask]) \
-                / np.sqrt(dot(measured_ray[:, mask], measured_ray[:, mask]))
-                / np.sqrt(dot(truth_ray[:, mask], truth_ray[:, mask]))
+            dot(measured_ray[:, cut], truth_ray[:, cut]) \
+                / np.sqrt(dot(measured_ray[:, cut], measured_ray[:, cut]))
+                / np.sqrt(dot(truth_ray[:, cut], truth_ray[:, cut]))
                 )
 
         #   Energy error is difference between true and measured theta,
         #   measured is in pointing, while true is in vertices
         cones['dtheta']['energy'] =  np.abs(
-            truth_theta[mask] - measured_theta[mask]
+            truth_theta[cut] - measured_theta[cut]
             )
 
         #   Combined cones is quadrature sum
@@ -299,169 +300,201 @@ class Events:
             )
 
         cones['ray_length'] = np.sqrt(
-            dot(measured_ray[:, mask], measured_ray[:, mask])
+            dot(measured_ray[:, cut], measured_ray[:, cut])
             )
-        cones['theta'] = measured_theta[mask]
-        cones['energy'] = measured_energy[mask]
-        cones['total_energy'] = measured_total_energy[mask]
-        cones['theta_true'] = truth_theta[mask]
+        cones['theta'] = measured_theta[cut]
+        cones['energy'] = measured_energy[cut]
+        cones['total_energy'] = measured_total_energy[cut]
+        cones['theta_true'] = truth_theta[cut]
 
         self.cones = cones
 
-    def calculate_stats(
-            self,
-            mask=None,
-            indices=None,
-            num_bins=None,
-            expanded_stats=False
-            ):
+    def calculate_stats(self,
+                        cut=None,
+                        indices=None,
+                        num_bins=None,
+                        all_stats=False
+                        ):
         """
-        Calculate statistics
+        Calculate statistics, with options:
+            cut : boolean cut to apply. If not supplied, all events used.
+            Distributions calculated if indices and num_bins supplied:
+                indices : integer index per event based on some
+                    digitization (or other binning) done separtely
+                num_bins : length of disribution, must span range of indices
+                    Note this is needed because we can't reliably infer range
+                    of indices from supplied indices
+            all_stats : boolean.  Calculates extended statistics list.
+                Default is false, will be speed + memory hit for
+                distributions
 
-        Inputs:
-            mask - along events axis
-            indices - for distributions, are indices from digitization
-                of some events-oriented variable
-            num_bins - length of disributions, must span range of indices
-            expanded_stats -  If true, expands set of statistics
-
-        Outputs:
-            stat_sums dictionary
+        stats_sums : returned scalars or distributions
         """
 
         import numpy as np
 
-        def stats_core(self, mask=None):
-            """
-            Define statistics while generating lowest level sums.
-            """
-
-            #   If no mask provided, is true for all events
-            if mask is None:
-                mask = np.ones(self.truth['time'].shape, dtype=bool)
+        #   Calculate stats on subset of data defined by cut
+        def calculate_stats_sums_with_cut(self, this_cut):
 
             stats_sums = {}
 
-            #   Averages
-            stats_sums['full_energy'] \
-                = np.sum(
-                    ~self.truth['missing_energy'][mask]
-                    )
-            stats_sums['clean_entrance_missing_energy'] \
-                =  np.sum(
-                    self.truth['clean_entrance'][mask]
-                    & ((self.truth['passive_energy'][mask]>0.001)
-                    | (self.truth['escaped_energy'][mask]>0.001))
-                    )
+            stats_sums['full_energy'] = np.sum(
+                ~self.truth['missing_energy'][this_cut]
+                )
+            stats_sums['clean_entrance_missing_energy'] =  np.sum(
+                self.truth['clean_entrance'][this_cut]
+                & ((self.truth['passive_energy'][this_cut]>0.001)
+                | (self.truth['escaped_energy'][this_cut]>0.001))
+                )
             stats_sums['bad_entrance_missing_energy'] \
                 =  np.sum(
-                        ~self.truth['clean_entrance'][mask]
-                        &((self.truth['passive_energy'][mask]>0.001)
-                          |(self.truth['escaped_energy'][mask]>0.001))
-                        )
+                    ~self.truth['clean_entrance'][this_cut]
+                    &((self.truth['passive_energy'][this_cut]>0.001)
+                      |(self.truth['escaped_energy'][this_cut]>0.001))
+                    )
 
-            #   Ordering stats
             if 'order' in self.measured_hits:
-                stats_sums['full_energy_ordered'] \
-                    = np.sum(
-                        ~self.truth['missing_energy'][mask]
-                        &self.measured_hits['order']['tried'][mask]
-                        &self.measured_hits['order']['ordered'][mask]
-                        )
-                stats_sums['full_energy_disordered'] \
-                    = np.sum(
-                        ~self.truth['missing_energy'][mask]
-                        &self.measured_hits['order']['tried'][mask]
-                        &~self.measured_hits['order']['ordered'][mask]
-                        )
+                stats_sums['full_energy_ordered'] = np.sum(
+                    ~self.truth['missing_energy'][this_cut]
+                    &self.measured_hits['order']['tried'][this_cut]
+                    &self.measured_hits['order']['ordered'][this_cut]
+                    )
+                stats_sums['full_energy_disordered'] = np.sum(
+                    ~self.truth['missing_energy'][this_cut]
+                    &self.measured_hits['order']['tried'][this_cut]
+                    &~self.measured_hits['order']['ordered'][this_cut]
+                    )
                 stats_sums['clean_entrance_missing_energy_ordered']\
                     =  np.sum(
-                        self.truth['clean_entrance'][mask]
-                        &((self.truth['passive_energy'][mask]>0.001)
-                          |(self.truth['escaped_energy'][mask]>0.001))
-                        &self.measured_hits['order']['tried'][mask]
-                        &self.measured_hits['order']['ordered'][mask]
+                        self.truth['clean_entrance'][this_cut]
+                        &((self.truth['passive_energy'][this_cut]>0.001)
+                          |(self.truth['escaped_energy'][this_cut]>0.001))
+                        &self.measured_hits['order']['tried'][this_cut]
+                        &self.measured_hits['order']['ordered'][this_cut]
                         )
                 stats_sums['clean_entrance_missing_energy_disordered'] \
                     =  np.sum(
-                        self.truth['clean_entrance'][mask]
-                        &((self.truth['passive_energy'][mask]>0.001)
-                          |(self.truth['escaped_energy'][mask]>0.001))
-                        &self.measured_hits['order']['tried'][mask]
-                        &~self.measured_hits['order']['ordered'][mask]
+                        self.truth['clean_entrance'][this_cut]
+                        &((self.truth['passive_energy'][this_cut]>0.001)
+                          |(self.truth['escaped_energy'][this_cut]>0.001))
+                        &self.measured_hits['order']['tried'][this_cut]
+                        &~self.measured_hits['order']['ordered'][this_cut]
                         )
                 stats_sums['bad_entrance_missing_energy_ordered']\
                     =  np.sum(
-                        ~self.truth['clean_entrance'][mask]
-                        &((self.truth['passive_energy'][mask]>0.001)
-                          |(self.truth['escaped_energy'][mask]>0.001))
-                        &self.measured_hits['order']['tried'][mask]
-                        &self.measured_hits['order']['ordered'][mask]
+                        ~self.truth['clean_entrance'][this_cut]
+                        &((self.truth['passive_energy'][this_cut]>0.001)
+                          |(self.truth['escaped_energy'][this_cut]>0.001))
+                        &self.measured_hits['order']['tried'][this_cut]
+                        &self.measured_hits['order']['ordered'][this_cut]
                         )
                 stats_sums['bad_entrance_missing_energy_disordered'] \
                     =  np.sum(
-                        ~self.truth['clean_entrance'][mask]
-                        &((self.truth['passive_energy'][mask]>0.001)
-                          |(self.truth['escaped_energy'][mask]>0.001))
-                        &self.measured_hits['order']['tried'][mask]
-                        &~self.measured_hits['order']['ordered'][mask]
+                        ~self.truth['clean_entrance'][this_cut]
+                        &((self.truth['passive_energy'][this_cut]>0.001)
+                          |(self.truth['escaped_energy'][this_cut]>0.001))
+                        &self.measured_hits['order']['tried'][this_cut]
+                        &~self.measured_hits['order']['ordered'][this_cut]
                         )
 
-            #   Expanded set of stats, off by default
-            if expanded_stats:
-                stats_sums['escaped'] \
-                    = np.sum(
-                        self.truth['escaped_energy'][mask]>0.001
-                        )
+            if all_stats:
+
+                stats_sums['escaped'] = np.sum(
+                    self.truth['escaped_energy'][this_cut]>0.001
+                    )
                 stats_sums['escaped_back'] = np.sum(
-                        self.truth['escaped_back_energy'][mask]>0.001
-                        )
+                    self.truth['escaped_back_energy'][this_cut]>0.001
+                    )
                 stats_sums['escaped_through'] = np.sum(
-                        self.truth['escaped_through_energy'][mask]>0.001
-                        )
+                    self.truth['escaped_through_energy'][this_cut]>0.001
+                    )
                 stats_sums['passive'] = np.sum(
-                        self.truth['passive_energy'][mask]>0.001
-                        )
+                    self.truth['passive_energy'][this_cut]>0.001
+                    )
                 stats_sums['clean_entrance'] = np.sum(
-                        self.truth['clean_entrance'][mask]
-                        )
+                    self.truth['clean_entrance'][this_cut]
+                    )
                 stats_sums['clean_entrance_escaped'] = np.sum(
-                        self.truth['clean_entrance'][mask]
-                        & (self.truth['escaped_energy'][mask]>0.001)
-                        )
+                    self.truth['clean_entrance'][this_cut]
+                    & (self.truth['escaped_energy'][this_cut]>0.001)
+                    )
                 stats_sums['clean_entrance_passive'] = np.sum(
-                        self.truth['clean_entrance'][mask]
-                        & (self.truth['passive_energy'][mask]>0.001)
-                        )
-                stats_sums['clean_entrance_passive_and_escaped'] \
-                    = np.sum(
-                        self.truth['clean_entrance'][mask]
-                        & (self.truth['passive_energy'][mask]>0.001)
-                        & (self.truth['escaped_energy'][mask]>0.001)
-                        )
-                stats_sums['clean_entrance_passive_or_escaped'] \
-                    = np.sum(
-                        self.truth['clean_entrance'][mask]
-                        & ((self.truth['passive_energy'][mask]>0.001)
-                        | (self.truth['escaped_energy'][mask]>0.001))
-                        )
-                stats_sums['clean_entrance_no_escaped_back'] =  \
-                    np.sum(
-                        self.truth['clean_entrance'][mask]
-                        & (self.truth['escaped_back_energy'][mask]<0.001)
-                        )
+                    self.truth['clean_entrance'][this_cut]
+                    & (self.truth['passive_energy'][this_cut]>0.001)
+                    )
+                stats_sums['clean_entrance_passive_and_escaped'] =  np.sum(
+                    self.truth['clean_entrance'][this_cut]
+                    & (self.truth['passive_energy'][this_cut]>0.001)
+                    & (self.truth['escaped_energy'][this_cut]>0.001)
+                    )
+                stats_sums['clean_entrance_passive_or_escaped'] =  np.sum(
+                    self.truth['clean_entrance'][this_cut]
+                    & ((self.truth['passive_energy'][this_cut]>0.001)
+                    | (self.truth['escaped_energy'][this_cut]>0.001))
+                    )
+                stats_sums['clean_entrance_no_escaped_back'] =  np.sum(
+                    self.truth['clean_entrance'][this_cut]
+                    & (self.truth['escaped_back_energy'][this_cut]<0.001)
+                    )
 
             return stats_sums
+
+        # #   Stats
+        # pointing['stats'] = {}
+
+        # pointing['stats']['initial'] = length(at_least_two_scatters)
+
+        # pointing['stats']['success'] = sum(pointing['success)
+        # pointing['stats']['success_no_missing_energy'] = sum( ...
+        #     pointing['success& ...
+        #     ~vertices.missingenergy)
+
+        # pointing['stats']['at_least_two_scatters'] = sum( ...
+        #     at_least_two_scatters)
+        # pointing['stats']['at_least_two_scatters_no_missing_energy']
+        #   = sum( ...
+        #     at_least_two_scatters& ...
+        #     ~vertices.missingenergy)
+
+        # pointing['stats']['at_least_three_scatters'] = sum( ...
+        #     hits['num_hits']>'] = 3)
+        # pointing['stats']['at_least_three_scatters_no_missing_energy']
+        #   = sum( ...
+        #     hits['num_hits']>'] = 3& ...
+        #     ~vertices.missingenergy)
+
+        # pointing['stats']['at_least_four_scatters'] = sum( ...
+        #     hits['num_hits']>'] = 4)
+        # pointing['stats']['at_least_four_scatters_no_missing_energy']
+        #   = sum( ...
+        #     hits['num_hits']>'] = 4& ...
+        #     ~vertices.missingenergy)
+
+        # pointing['stats']['pair_after_compton'] = sum(sum( ...
+        #     vertices.interaction(2:end,~vertices.entrancescatter)'] = '] =  ...
+        #     vertices.interactioncode.pair))
+        # pointing['stats']['pair_after_compton_no_missing_energy']
+        #   = sum(sum( ...
+        #     vertices.interaction(2:end,~vertices.entrancescatter&~ ...
+        #     vertices.missingenergy)'] = '] =  ...
+        #     vertices.interactioncode.pair))
+
+        # #   Save stats from vertices
+        # pointing['stats']['vertices'] = vertices.stats
 
         #   stats is dictionary
         self.stats = {}
 
+        #   If no cut provided, is true for all events
+        if cut is None:
+            cut = np.ones(self.truth['time'].shape, dtype=bool)
+
         #   Find scalar sums over all events
-        sums = stats_core(self, mask)
+        sums = calculate_stats_sums_with_cut(self, cut)
         self.stats['scalar_sums'] = {}
         for key in sums.keys():
             self.stats['scalar_sums'][key] = sums[key]
-        self.stats['scalar_sums_sum'] = np.sum(mask)
+        self.stats['scalar_sums_sum'] = np.sum(cut)
 
         #   Disributions: calculate stats in num_bins bins with
         #   bin indices of all events provided
@@ -474,9 +507,9 @@ class Events:
                 index = bin_index + 1
 
                 #   Get sums for events in this bin
-                sums = stats_core(
+                sums = calculate_stats_sums_with_cut(
                     self,
-                    (indices==index) & mask
+                    (indices==index) & cut
                      )
 
                 #   For first bin, initialize distribution sums
@@ -488,7 +521,7 @@ class Events:
 
                 #   Append current bin to distribution_sums
                 distribution_all_sums.append(
-                    self.truth['time'][(indices==index) & mask].size
+                    self.truth['time'][(indices==index) & cut].size
                     )
                 for key in distribution_sums.keys():
                     if distribution_all_sums[bin_index] > 0:
@@ -509,46 +542,42 @@ class Events:
 def trim_events(events, num_trimmed_events):
     """ Used when creating events instance, trims events structure to
     contain only first num_trimmed_events
-    """
+        """
 
     import numpy as np
 
-    mask = np.zeros(events.truth['num_hits'].shape, dtype=bool)
-    if num_trimmed_events > len(mask):
+    cut = np.zeros(events.truth['num_hits'].shape, dtype=bool)
+    if num_trimmed_events > len(cut):
         print('ERROR: num trimmed events exceeds number of events')
         return
 
-    mask[0:num_trimmed_events] = True
+    cut[0:num_trimmed_events] = True
 
-    max_hits = np.max(events.truth['num_hits'][mask])
+    max_hits = np.max(events.truth['num_hits'][cut])
 
     for key in events.truth.keys():
         if events.truth[key].ndim==1:
             events.truth[key] \
-                = events.truth[key][mask]
+                = events.truth[key][cut]
         elif events.truth[key].ndim==2:
             events.truth[key] \
-                = events.truth[key][0:max_hits, mask]
+                = events.truth[key][0:max_hits, cut]
         elif events.truth[key].ndim==3:
             events.truth[key] \
-                = events.truth[key][:, 0:max_hits, mask]
+                = events.truth[key][:, 0:max_hits, cut]
 
     for key in events.truth_hits.keys():
         if events.truth_hits[key].ndim==1:
             events.truth_hits[key] \
-                = events.truth_hits[key][mask]
+                = events.truth_hits[key][cut]
         elif events.truth_hits[key].ndim==2:
             events.truth_hits[key] \
-                = events.truth_hits[key][0:max_hits, mask]
+                = events.truth_hits[key][0:max_hits, cut]
         elif events.truth_hits[key].ndim==3:
             events.truth_hits[key] \
-                = events.truth_hits[key][:, 0:max_hits,  mask]
+                = events.truth_hits[key][:, 0:max_hits,  cut]
 
     events.meta['num_events'] = num_trimmed_events
 
     return events
-
-
-
-
 
