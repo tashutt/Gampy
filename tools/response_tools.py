@@ -11,6 +11,7 @@ File io: sim_file_tools
 
 Signficant rewrite of original Matlab routines, initial port 8/10/2020
 Major repackaging 3/21
+Rewrite to awkward arrays 9/23 BT
 
 @author: tshutt
 """
@@ -24,6 +25,12 @@ def apply_detector_response(events):
     events returned.  The primary result is creating events.measured_hits,
     but also adds trigger information to events.truth_hits
 
+    events.measured_hits contains:
+        energy, total_energy, quanta_q, r, 
+        cell, cell_index, time, r_cell
+    events.truth_hits:
+        triggered_p, triggered_q, triggered,
+        
     Generates raw photons and electrons, applies simplified treatment
     of their propogation and measurement including fluctuations at all
     branching steps, adds readout noise, sums charge and light energy
@@ -51,37 +58,19 @@ def apply_detector_response(events):
 
         More complete treatment is documented in a slide deck
 
+    AWKWARD UPDATE
+    -- is there a need to remove hits that did not trigger? 
+
     """
 
+    import awkward as ak
     import numpy as np
     from numpy.random import randn
     import copy
-
     import geometry_tools
 
     print('Applying detector response')
 
-    #   This accumulates signals in cells
-    def add_values_to_cells(values, cell_values, hits, nh, event_cut):
-        """
-        For all struck cells, adds values from hit nh to cell_values.
-
-        values - length is sum(event_cut).
-
-        cell_values - size is (num_cells, num_events)
-
-        Note that values is the nh hit slice of a larger array,
-            but nh must be separely
-            supplied to index information in hits
-        """
-
-        for nc in range(hits['num_cells'].max()):
-            hit_in_cell \
-                = hits['cell'][nh, :] == hits['cells_list'][nc, :]
-            cell_values[nc, hit_in_cell & event_cut]  \
-                += values[hit_in_cell[event_cut]]
-
-        return
 
     #   Calculate detector params
     events.params.calculate()
@@ -89,244 +78,123 @@ def apply_detector_response(events):
     #   Measured hits is a dictionary
     measured_hits = {}
 
-    #   convenient variable
-    max_num_hits = events.truth['num_hits'].max()
-
     #  Add fluctuations, find measured signal, apply threshold
-
-    #   Initialize variables
-
-    measured_hits['energy'] = np.zeros(events.truth_hits['energy'].shape)
-    measured_hits['r'] = np.zeros(events.truth_hits['r'].shape)
-    measured_hits['total_energy'] \
-        = np.zeros(events.truth['num_hits'].shape)
-
-    triggered_q = np.zeros(events.truth_hits['energy'].shape, dtype=bool)
-    triggered_p = np.zeros(events.truth_hits['energy'].shape, dtype=bool)
-
-    charge_fraction = np.ones(events.truth_hits['energy'].shape)
-    quanta_q = np.zeros(events.truth_hits['energy'].shape)
-
-    cell_energy = np.zeros(events.truth_hits['cells_list'].shape)
-    cell_q = np.zeros(events.truth_hits['cells_list'].shape)
-    cell_p = np.zeros(events.truth_hits['cells_list'].shape)
-
-    #   Loop over hits, find quanta of charge and light per event,
-    #   sum hits into cells, find charge trigger
-    for nh in range(max_num_hits):
-
-        #   convenient variables
-        alive = events.truth_hits['alive'][nh, :]
-        # cell_hit_count = events.truth_hits['cell_hit_count'][nh, alive]
-
-        #   Charge collection - due to charge loss
-        #   Note: values of z are negative
-        charge_fraction[nh, alive] = np.exp(
-            - events.truth_hits['z_drift'][nh, alive]
-            / events.params.charge_drift['drift_length']
-            )
-
-        #   Find quanta, for "alive" hits
-        quanta = find_hit_quanta(
-            events.truth_hits['energy'][nh, alive],
-            charge_fraction[nh, alive],
-            events.params
-            )
-
-        #   Measured charge signal.  First, reduce signal according to
-        #   fraction that appears on coarse grids.  Then add noise of
-        #   total set of grids with signal.
-        quanta['q']['measured'] \
-            = quanta['q']['collected'] \
-            * events.params.coarse_grids['signal_fraction'] \
-            + events.params.coarse_grids['noise'] \
-                * np.sqrt(events.params.coarse_grids['signal_sharing']) \
-                * randn(quanta['q']['collected'].size) \
-
-        #   Now trigger on this signal, compared to noise in sum wires
-        triggered_q[nh, alive] = (
-            quanta['q']['measured'] > events.params.coarse_grids['noise']
-            * np.sqrt(events.params.coarse_grids['signal_sharing'])
-            * events.params.coarse_grids['threshold_sigma']
-            )
-
-        #   Now correct signal for fraction on wires, and charge drift
-        quanta['q']['measured'] = quanta['q']['measured'] \
-            / events.params.coarse_grids['signal_fraction'] \
-            / charge_fraction[nh, alive]
-
-        #   Measured light adds readout spe noise
-        quanta['p']['measured'] = quanta['p']['collected'] \
-            + events.params.light['spe_noise'] \
-                * randn(quanta['p']['collected'].size)
-
-        #   Add triggered, loss corrected charge to
-        #   summed charge in cells
-        add_values_to_cells(
-            quanta['q']['measured'][triggered_q[nh, alive]],
-            cell_q,
-            events.truth_hits,
-            nh,
-            (triggered_q[nh, :] & alive)
-            )
-
-        #   Add untriggered loss corrected light to summed light
-        #   in cells
-        add_values_to_cells(
-            quanta['p']['measured'] \
-                / events.params.light['collection'],
-            cell_p,
-            events.truth_hits,
-            nh,
-            alive
-            )
-
-        #   Loss-corrected, measured charge signal per hit - needed below
-        quanta_q[nh, alive] = quanta['q']['measured']
-
-
-        #   Smear space
-        measured_hits['r'][:, nh, alive] = \
-            smear_space(events.truth_hits['r'][:, nh, alive], events.params)
-
+    charge_fraction = np.exp(-events.truth_hits['z_drift'] /
+                             events.params.charge_drift['drift_length'])
+    
+    quanta = find_hit_quanta(events.truth_hits['energy'], charge_fraction,
+                             events.params)
+    
+    quanta['q']['measured'] \
+                = quanta['q']['collected'] \
+                 * events.params.coarse_grids['signal_fraction'] \
+                 + events.params.coarse_grids['noise'] \
+                    * np.sqrt(events.params.coarse_grids['signal_sharing']) \
+                     * ak.Array([randn(L) for L in ak.num(quanta['q']['collected'])])
+    
+    triggered_q = (quanta['q']['measured'] > events.params.coarse_grids['noise'] *
+                   np.sqrt(events.params.coarse_grids['signal_sharing']) *
+                   events.params.coarse_grids['threshold_sigma'])
+    
+    quanta['q']['measured'] = quanta['q']['measured'] \
+        / events.params.coarse_grids['signal_fraction'] \
+        / charge_fraction
+    
+    #   Measured light adds readout spe noise
+    quanta['p']['measured'] = quanta['p']['collected'] \
+        + events.params.light['spe_noise'] \
+            * ak.Array([randn(L) for L in ak.num(quanta['q']['collected'])])
+    
+    quanta_q = quanta['q']['measured']
+    
+    cell_q, cell_light = [], []
+    for event_num in range(len(triggered_q)):
+        cells_in_this_event = events.truth['num_cells'][event_num]
+    
+        m_q = quanta['q']['measured'][event_num]
+        m_light = quanta['p']['measured'][event_num] / events.params.light[
+            'collection']
+    
+        temp_cq, temp_clight = [], []
+        for nc in range(cells_in_this_event):
+            this_cells = events.truth_hits['cells_list'][event_num, nc]
+            same_cell = events.truth_hits['cell'][event_num] == this_cells
+    
+            sum_of_charges = np.sum(m_q[same_cell & triggered_q[event_num]])
+            temp_cq.append(sum_of_charges)
+    
+            sum_of_light = np.sum(m_light[same_cell])
+            temp_clight.append(sum_of_light)
+    
+        cell_q.append(temp_cq)
+        cell_light.append(temp_clight)
+    
+    cell_q = ak.Array(cell_q)
+    cell_p = ak.Array(cell_light)
+    
     #   Summed energy in cells comes from sum of charge and light
     cell_energy = (cell_p + cell_q) * events.params.material['w']
-
-    #   With cell sums generated, now loop on hits again
-    #   and find meaured hit energy and light trigger
-    for nh in range(max_num_hits):
-
-        #   convenient variables
-        alive = events.truth_hits['alive'][nh, :]
-        i_cells = events.truth_hits['cell_index'][nh, :]
-        i_events = np.arange(0, len(alive))
-
-        #   Measured hit energy is based on charge of this hit, scaled
-        #   by summed energy and sumnmed charge in this cell.  Trigger
-        #   not explicitly applied  here (but already used to create
-        #   summed charge in cell).
-        #   Note that for single hit in cell this is the exact treatment
-        measured_hits['energy'][nh, alive] \
-            = cell_energy[i_cells, i_events][alive] \
-                * quanta_q[nh, alive] \
-                    / cell_q[i_cells, i_events][alive]
-
-        #   Find triggered light signals, per hit, but based
-        #   on total light signal in cell
-        triggered_p[nh, alive] = cell_p[i_cells, i_events][alive] \
-            > events.params.light['spe_threshold']
-
+    
+    i_cells = events.truth_hits['cell_index']
+    
+    measured_hits['energy'] = (cell_energy[i_cells] / cell_q[i_cells]) * quanta_q
+    triggered_p = cell_p[i_cells] > events.params.light['spe_threshold']
+    
     #   Hits trigger is and of q and p triggers
     triggered = triggered_q & triggered_p
-
+    
     #   Event energy is sum of cell charge and light, applying
     #   threhshold to light signal
-    measured_hits['total_energy'] = np.sum((
-        cell_p * (cell_p > events.params.light['spe_threshold'])
-        + cell_q) * events.params.material['w'], axis=0)
-
+    measured_hits['total_energy'] = np.sum(
+        (cell_p * (cell_p > events.params.light['spe_threshold']) + cell_q) *
+        events.params.material['w'],
+        axis=1)
+    
     #   Charge signal
     measured_hits['quanta_q'] = copy.copy(quanta_q)
-
+    measured_hits['r'] = smear_space(events.truth_hits['r'], events.params)
+    
     #   Save trigger information - in truth hits, since this is
     #   effectively truth data that is not known as a measurement
     events.truth_hits['triggered_q'] = triggered_q
     events.truth_hits['triggered_p'] = triggered_p
     events.truth_hits['triggered'] = triggered
-
+    
     #   alive and cell info copied from measured_hits.
-    measured_hits['alive'] = copy.copy(events.truth_hits['alive'])
     measured_hits['cell'] = copy.copy(events.truth_hits['cell'])
-    measured_hits['cell_index'] \
-        = copy.copy(events.truth_hits['cell_index'])
-
-    #  good = alive & triggerered
-    measured_hits['alive'] = copy.copy(events.truth_hits['alive'])
-
-    #   Now remove untriggered hits.  Some messiness
-    #   needed to cut out hits from matrix of (hits, events)
-    #   This is still probably slowet part of calculation.  Might be
-    #   worth trying to create new arrays for each num_hits instead of
-    #   slicing out of full arrays?
-
-    #   convenient variable
-    max_num_hits = events.truth['num_hits'].max()
-
-    measured_hits['num_hits'] = \
-        np.sum(events.truth_hits['alive'] * triggered, 0)
-    measured_hits['missing_hits'] = np.sum(~triggered, 0)
-
-    for num_hits in range(1, max_num_hits+1):
-
-        this_num_hits = events.truth['num_hits']==num_hits
-
-        skips =copy.copy(~triggered & this_num_hits)
-        shifted_skips = copy.copy(skips)
-        # for n1 in range(max_num_hits-1):
-        for n1 in range(num_hits):
-            while 1:
-                shift = copy.copy(shifted_skips[n1,:])
-                if np.sum(shift)>0:
-                    #   Shift through end of steps
-                    for n2 in range(n1,max_num_hits-1):
-                        shifted_skips[n2, shift] = shifted_skips[n2+1, shift]
-                        measured_hits['energy'][n2, shift] = \
-                            measured_hits['energy'][n2+1, shift]
-                        measured_hits['r'][:, n2, shift] = \
-                            measured_hits['r'][:, n2+1, shift]
-                        measured_hits['alive'][n2, shift] = \
-                            measured_hits['alive'][n2+1, shift]
-                        measured_hits['cell'][n2, shift] = \
-                            measured_hits['cell'][n2+1, shift]
-                        measured_hits['cell_index'][n2, shift] = \
-                            measured_hits['cell_index'][n2+1, shift]
-                        measured_hits['quanta_q'][n2, shift] = \
-                            measured_hits['quanta_q'][n2+1, shift]
-
-                    shifted_skips[n2+1, shift] = False
-                    measured_hits['energy'][n2+1, shift] = 0.0
-                    measured_hits['r'][:, n2+1, shift] = 0.0
-                    measured_hits['alive'][n2+1, shift] = False
-                    measured_hits['cell'][n2+1, shift] = 0
-                    measured_hits['cell_index'][n2+1, shift] = 0
-                    measured_hits['quanta_q'][n2+1, shift] = 0
-
-                else:
-                    break
-
-                shift = shifted_skips[n1, :]
-                if np.sum(shift)==0:
-                    break
-
+    measured_hits['cell_index'] = copy.copy(events.truth_hits['cell_index'])
+    
+    from tools import geometry_tools
     #   Generate locations in cell coordinates
     if events.meta['geo_params'].detector_geometry=='geomega':
         measured_hits['r_cell'] = geometry_tools.global_to_cell_coordinates(
             measured_hits['r'],
             measured_hits['cell'],
             events.meta['geo_params'],
-            alive = measured_hits['alive']
             )
-
-    #   If max num hits now reduced, cut out the empty end of the arrays
-    max_hits = np.max(measured_hits['num_hits'])
-    if measured_hits['alive'].shape[0] > max_hits:
-        measured_hits['energy'] = measured_hits['energy'][0:max_hits, :]
-        measured_hits['r'] = measured_hits['r'][:, 0:max_hits, :]
-        measured_hits['alive'] = measured_hits['alive'][0:max_hits, :]
-        measured_hits['cell'] = measured_hits['cell'][0:max_hits, :]
-        measured_hits['cell_index'] \
-            = measured_hits['cell_index'][0:max_hits, :]
-        measured_hits['quanta_q'] = measured_hits['quanta_q'][0:max_hits, :]
-
+    
+    
     #   Time of events is directly from truth.  Probably should add an error
     #   here based on light readout timing
     measured_hits['time'] = events.truth['time']
+    
+    good_mask = ak.num(triggered) > 0   
+    measured_hits['energy'] = measured_hits['energy'][good_mask]
+    measured_hits['r']      = measured_hits['r'][good_mask]
+    measured_hits['r_cell'] = measured_hits['r_cell']
+    measured_hits['time']   = events.truth['time'][good_mask]
+    measured_hits['cell']   = measured_hits['cell'][good_mask]
+    measured_hits['quanta_q']     = measured_hits['quanta_q'][good_mask]
+    measured_hits['total_energy'] = measured_hits['total_energy'][good_mask]
+    measured_hits['cell_index']   = measured_hits['cell_index'][good_mask]
+    measured_hits['triggered']    = events.truth_hits['triggered'][good_mask]
 
-    #   Assign to events
     events.measured_hits = measured_hits
+    return events
 
     return events
 
+### HELPER FUNCTIONS
 def find_hit_quanta(energy, charge_fraction, params):
     """
     Given the energy in a hit, generates quanta of initial and
@@ -347,7 +215,20 @@ def find_hit_quanta(energy, charge_fraction, params):
     import numpy as np
     from numpy import sqrt
     from numpy.random import randn
-    from numpy import round_
+    import awkward as ak
+
+    def round_(a):
+        return ak.values_astype(a, "int64")
+
+    def replace_negative_elements(a):
+        new_arrays = []
+        for sub_array in a:
+            sum_sub_array = np.sum(sub_array)
+            if sum_sub_array < 0:
+                sub_array = ak.with_field(
+                    sub_array, np.where(sub_array < 0, 0, sub_array), 0)
+            new_arrays.append(sub_array)
+        return ak.Array(new_arrays)
 
     q = {}
     p = {}
@@ -355,19 +236,14 @@ def find_hit_quanta(energy, charge_fraction, params):
 
     #   Total raw quanta, with fano factor rt(n) term
     raw_summed_quanta = round_(
-        energy / params.material['w']
-        + sqrt(energy / params.material['w']
-               * params.material['fano'])
-        * randn(len(energy))
-        )
+        energy / params.material['w'] +
+        np.sqrt(energy / params.material['w'] * params.material['fano']) *
+        randn(len(energy)))
 
     #   This can lead to negative quanta.  NEED BETTER TREATMENT, but
     #   for now set any such to zero.  Below, set such q and p to
     #   zero.
-    if np.sum(raw_summed_quanta<0) > 0:
-        # disp(['*** ' num2str(sum(raw_summed_quanta<0)) ...s
-        #     ' events with negative total excitation num *** ']);
-        raw_summed_quanta[raw_summed_quanta<0] = 0
+    raw_summed_quanta = replace_negative_elements(raw_summed_quanta)
 
     #   Add recombination fluctuations
     #   Here I (nearly) follow Dobi - but am not dealing with
@@ -378,7 +254,7 @@ def find_hit_quanta(energy, charge_fraction, params):
     delta_r = \
         params.material['sigma_p'] \
         * raw_summed_quanta \
-        * randn(energy.size)
+        * ak.Array([randn(len(sub_array)) for sub_array in energy])
     q['raw'] = \
         raw_summed_quanta \
         * (1 - params.material['recombination'])
@@ -391,35 +267,23 @@ def find_hit_quanta(energy, charge_fraction, params):
     p['raw'] = \
         round_(p['raw']) \
         - round_(delta_r)
-    if np.sum(q['raw']<0)>0:
-        # disp(['*** ' num2str(sum(q['raw']<0)) ...
-        #     ' events with negative electron num *** ']);
-        q['raw'][q['raw']<0]=0;
 
-    if np.sum(p['raw']<0)>0:
-        # disp(['*** ' num2str(sum(p['raw']<0)) ...
-        #     ' events with negative photon num *** ']);
-        p['raw'][p['raw']<0]=0;
+    q['raw'] = replace_negative_elements(q['raw'])
+    p['raw'] = replace_negative_elements(p['raw'])
 
     #   Charge: drift loss, and flucutations from that
-    q['collected'] = (
-        q['raw'] * charge_fraction
-        + sqrt(
-        q['raw']
-        * (1 - charge_fraction)
-        * charge_fraction)
-        * randn(energy.size)
-        )
+    q['collected'] = (q['raw'] * charge_fraction +
+                      sqrt(q['raw'] *
+                           (1 - charge_fraction) * charge_fraction) *
+                      ak.Array([randn(len(sub_array))
+                                for sub_array in energy]))
 
     #   Light: collection fraction and flucutations due to that
     p['collected'] = (
-        p['raw'] * params.light['collection']
-        + sqrt(
-        p['raw']
-        * (1 - params.light['collection'])
-        * params.light['collection'])
-        * randn(energy.size)
-        )
+        p['raw'] * params.light['collection'] +
+        sqrt(p['raw'] *
+             (1 - params.light['collection']) * params.light['collection']) *
+        ak.Array([randn(len(sub_array)) for sub_array in energy]))
 
     # #   Measured signals.  Charge gets coarse grid noise, light adds
     # #   readout spe noise
@@ -433,52 +297,40 @@ def find_hit_quanta(energy, charge_fraction, params):
 
     return quanta
 
+
+
 def smear_space(r, params):
     """
-    Currently a simple quadrature sum of fixed resolution (described in
-    parms), and diffusion.  Needs  better treatment of diffusion term
-    - currently probably an overesimate
-
-    5/20    TS
+    Adapted for awkward array input, constructing a new array.
     """
-
-    # import charge_drift_tools
-
-    import numpy as np
     from numpy.random import randn
-    from numpy import sqrt
+    import awkward as ak
+    import numpy as np
 
-    # drift_properties = charge_drift_tools.properties(
-    #     params.charge_drift']['drift_field'],
-    #     params.material']
-    #     )
-    # sigma = charge_drift_tools.get_sigma(-r[2, :], drift_properties)
+    #TODO
     sigma = {}
-    sigma['transverse'] = np.zeros(r[2, :].shape)
-    sigma['longitudinal'] = np.zeros(r[2, :].shape)
+    sigma['transverse'] = 0
+    sigma['longitudinal'] = 0
 
-    num=len(r[0, :])
+    transverse_part = (params.spatial_resolution['sigma_xy']**2 +
+                       (sigma['transverse'] *
+                        params.charge_drift['diffusion_fraction'])**2)**0.5
+    longitudinal_part = (params.spatial_resolution['sigma_z']**2 +
+                         (sigma['longitudinal'] *
+                          params.charge_drift['diffusion_fraction'])**2)**0.5
 
-    r[0, :] = \
-        r[0, :] \
-        + randn(num) * sqrt(
-        params.spatial_resolution['sigma_xy']**2
-        + (sigma['transverse']
-           * params.charge_drift['diffusion_fraction'])**2
-        )
-    r[1, :] = \
-        r[1, :] \
-        + randn(num) * sqrt(
-        params.spatial_resolution['sigma_xy']**2
-        + (sigma['transverse']
-           * params.charge_drift['diffusion_fraction'])**2
-        )
-    r[2, :] = \
-        r[2, :] \
-        + randn(num) * sqrt(
-        params.spatial_resolution['sigma_z']**2
-        + (sigma['longitudinal']
-           * params.charge_drift['diffusion_fraction'])**2
-        )
+    rx, ry, rz = r[:, 0], r[:, 1], r[:, 2]
+    num_elements = ak.num(rx)
 
-    return r
+    new_rx = ak.Array([[subarr + randn(n) * transverse_part]
+                       for subarr, n in zip(rx, num_elements)])
+    new_ry = ak.Array([[subarr + randn(n) * transverse_part]
+                       for subarr, n in zip(ry, num_elements)])
+    new_rz = ak.Array([[subarr + randn(n) * longitudinal_part]
+                       for subarr, n in zip(rz, num_elements)])
+
+    # Concatenating the arrays along the new axis
+    combined_array = ak.concatenate([new_rx, new_ry, new_rz], axis=1)
+
+    return combined_array
+    
