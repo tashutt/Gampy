@@ -148,7 +148,7 @@ class Events:
         import awkward as ak
         import numpy as np
         
-        drift_est_acc = 0.02
+        self.drift_est_acc = 0.02
         
         if 'measured_hits' not in self.__dict__:
             self.apply_detector_response()
