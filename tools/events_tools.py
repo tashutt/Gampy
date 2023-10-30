@@ -181,7 +181,7 @@ class Events:
 
     def _compute_timeframe(self, drift_enabled, hit_time, drift_time):
         if drift_enabled:
-            delta_t = min(self.drift_est_acc / self.velocity, drift_time)
+            delta_t = min(self.drift_est_acc / self.params.charge_drift['velocity'], drift_time)
             return (hit_time + drift_time, hit_time + drift_time + delta_t)    
         else:
             return (hit_time, hit_time + drift_time)
