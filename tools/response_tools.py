@@ -181,7 +181,7 @@ def apply_detector_response(events):
     good_mask = ak.num(triggered) > 0   
     measured_hits['energy'] = measured_hits['energy'][good_mask]
     measured_hits['r']      = measured_hits['r'][good_mask]
-    measured_hits['r_cell'] = measured_hits['r_cell']
+    measured_hits['r_cell'] = measured_hits['r_cell'][good_mask]
     measured_hits['time']   = events.truth['time'][good_mask]
     measured_hits['cell']   = measured_hits['cell'][good_mask]
     measured_hits['quanta_q']     = measured_hits['quanta_q'][good_mask]
