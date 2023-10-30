@@ -161,6 +161,7 @@ class Events:
             drift_len_via_diffusion_enabled, num_of_events, 
             num_of_hits_in_event, velocity)
         
+        self.time_allocation = time_allocation
         self.measured_hits['pileup_detected'] = self._compute_pileup_flag(time_allocation)
 
     def _compute_time_allocation(self, drift_enabled, num_events, num_hits, velocity):
@@ -176,7 +177,6 @@ class Events:
                 for i, hit_cell_index in enumerate(affected_cells):
                     timeframe = self._compute_timeframe(drift_enabled, hit_time, drift_times[i])
                     allocation.setdefault(event_number, {}).setdefault(hit_cell_index, []).append(timeframe)
-        
         return allocation
 
     def _compute_timeframe(self, drift_enabled, hit_time, drift_time):
@@ -190,7 +190,7 @@ class Events:
         import awkward as ak
         import numpy as np
         
-        pileup_flag = []
+        pileup_detected = []
 
         for event_id, cell_hits in time_allocation.items():
             event_has_overlap = any(
@@ -200,12 +200,9 @@ class Events:
             )
             
             if event_has_overlap:
-                pileup_flag.append(True)
-            else:
-                pileup_flag.append(False)
-                print(f"Seen a {event_id} gamma!")
+                pileup_detected.append(event_id)
 
-        return ak.Array(pileup_flag)
+        return ak.Array(pileup_detected)
 
     def _check_overlap(self, event_hits, event_id, cell_id, beg0, end0):
         import awkward as ak
