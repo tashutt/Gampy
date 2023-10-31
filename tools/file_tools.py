@@ -1469,6 +1469,46 @@ def calculate_z_drift(geo_params, r, cell):
                  geo_params.cells['back_layer'][cell - 1])
     z_drift = front_term + back_term
     return z_drift
+
+particle_ids = {
+    0: "?", 1: "photon", 2: "positron", 3: "electron", 4: "proton", 5: "anti_proton",
+    6: "neutron", 7: "anti_neutron", 8: "anti_muon", 9: "muon", 10: "anti_tau",
+    11: "tau", 12: "electron_neutrino", 13: "anti_electron_neutrino",
+    14: "muon_neutrino", 15: "anti_muon_neutrino",
+    16: "tau_neutrino", 17: "anti_tau_neutrino", 18: "deuteron",
+    19: "triton", 20: "helium_3", 21: "alpha"
+}
+
+elements_dict = {
+    1: "H", 2: "He", 3: "Li", 4: "Be", 5: "B", 6: "C", 7: "N", 8: "O", 9: "F", 10: "Ne",
+    11: "Na", 12: "Mg", 13: "Al", 14: "Si", 15: "P", 16: "S", 17: "Cl", 18: "Ar", 19: "K", 20: "Ca",
+    21: "Sc", 22: "Ti", 23: "V", 24: "Cr", 25: "Mn", 26: "Fe", 27: "Co", 28: "Ni", 29: "Cu", 30: "Zn",
+    31: "Ga", 32: "Ge", 33: "As", 34: "Se", 35: "Br", 36: "Kr", 37: "Rb", 38: "Sr", 39: "Y", 40: "Zr",
+    41: "Nb", 42: "Mo", 43: "Tc", 44: "Ru", 45: "Rh", 46: "Pd", 47: "Ag", 48: "Cd", 49: "In", 50: "Sn",
+    51: "Sb", 52: "Te", 53: "I", 54: "Xe", 55: "Cs", 56: "Ba", 57: "La", 58: "Ce", 59: "Pr", 60: "Nd",
+    61: "Pm", 62: "Sm", 63: "Eu", 64: "Gd", 65: "Tb", 66: "Dy", 67: "Ho", 68: "Er", 69: "Tm", 70: "Yb",
+    71: "Lu", 72: "Hf", 73: "Ta", 74: "W", 75: "Re", 76: "Os", 77: "Ir", 78: "Pt", 79: "Au", 80: "Hg",
+    81: "Tl", 82: "Pb", 83: "Bi", 84: "Po", 85: "At", 86: "Rn", 87: "Fr", 88: "Ra", 89: "Ac", 90: "Th",
+    91: "Pa", 92: "U", 93: "Np", 94: "Pu", 95: "Am", 96: "Cm", 97: "Bk", 98: "Cf", 99: "Es", 100: "Fm",
+    101: "Md", 102: "No", 103: "Lr", 104: "Rf", 105: "Db", 106: "Sg", 107: "Bh", 108: "Hs", 109: "Mt",
+    110: "Ds", 111: "Rg", 112: "Cn", 113: "Nh", 114: "Fl", 115: "Mc", 116: "Lv", 117: "Ts", 118: "Og"
+}
+
+def particle_name(iso,ia=2):
+    if int(iso) == 1:
+        if ia == 2:    
+            return particle_ids[int(iso)]
+        if ia > 0.21:
+            return particle_ids[int(iso)] + "_atm" 
+        else:
+            return particle_ids[int(iso)] + "_cos"
+    
+    if int(iso) in particle_ids.keys():
+        return particle_ids[int(iso)]
+    ele = int(iso / 1000)
+    av = iso - ele * 1000
+    H = elements_dict[ele]
+    return f"{H}{av}" if av > 0 else H
 ######## Helper functions ##########
 
 def read_events_from_sim_file(full_file_name,
@@ -1571,6 +1611,9 @@ def read_events_from_sim_file(full_file_name,
             # calculated information
             truth_event['theta'] = calculate_theta(
                 truth_hits_event['s_primary'], truth_event['incident_s'])
+
+            truth_event['particle_name'] = particle_name(truth_event['incident_particle'],
+                                                         truth_event['incident_s'][2])
 
             truth_hits_event["z_drift"] = calculate_z_drift(
                 geo_params, truth_hits_event['r'], truth_hits_event['cell'])
