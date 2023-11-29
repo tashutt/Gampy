@@ -79,8 +79,9 @@ def apply_detector_response(events):
     measured_hits = {}
 
     #  Add fluctuations, find measured signal, apply threshold
-    charge_fraction = np.exp(-events.truth_hits['z_drift'] /
-                             events.params.charge_drift['drift_length'])
+    # charge_fraction = np.exp(-events.truth_hits['z_drift'] /
+    #                          events.params.charge_drift['drift_length'])
+    charge_fraction = 1
     
     quanta = find_hit_quanta(events.truth_hits['energy'], charge_fraction,
                              events.params)
@@ -121,9 +122,11 @@ def apply_detector_response(events):
             same_cell = events.truth_hits['cell'][event_num] == this_cells
     
             sum_of_charges = np.sum(m_q[same_cell & triggered_q[event_num]])
+            sum_of_charges = 0 if sum_of_charges < 0 else sum_of_charges
             temp_cq.append(sum_of_charges)
     
             sum_of_light = np.sum(m_light[same_cell])
+            sum_of_light = 0 if sum_of_light < 0 else sum_of_light
             temp_clight.append(sum_of_light)
     
         cell_q.append(temp_cq)
@@ -137,7 +140,15 @@ def apply_detector_response(events):
     
     i_cells = events.truth_hits['cell_index']
     
-    measured_hits['energy'] = (cell_energy[i_cells] / cell_q[i_cells]) * quanta_q
+    # Define a small constant to avoid division by very small numbers
+    epsilon = 1
+
+    safe_denominator = cell_q[i_cells] + epsilon
+
+    # Apply the scaling factor to the energy calculation
+    measured_hits['energy'] = (cell_energy[i_cells] / safe_denominator) * quanta_q 
+        
+    
     triggered_p = cell_p[i_cells] > events.params.light['spe_threshold']
     
     #   Hits trigger is and of q and p triggers
@@ -188,6 +199,8 @@ def apply_detector_response(events):
     measured_hits['total_energy'] = measured_hits['total_energy'][good_mask]
     measured_hits['cell_index']   = measured_hits['cell_index'][good_mask]
     measured_hits['triggered']    = events.truth_hits['triggered'][good_mask]
+    
+    measured_hits['_good_mask']   = good_mask
 
     events.measured_hits = measured_hits
     return events
@@ -291,6 +304,10 @@ def find_hit_quanta(energy, charge_fraction, params):
     #     + params.coarse_grids['noise'] * randn(energy.size)
     # p['measured'] = p['collected'] \
     #     + params.light']['spe_noise'] * randn(energy.size)
+
+    p['collected'] = replace_negative_elements(p['collected'])
+    q['collected'] = replace_negative_elements(q['collected'])
+    print("Replaced negative elements in q and p")
 
     quanta['p'] = p
     quanta['q'] = q
