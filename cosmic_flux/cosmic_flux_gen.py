@@ -10,7 +10,7 @@ def generate_cosmic_simulation(geo_full_file_name,
                                Inclination=0, 
                                Altitude=550, 
                                Elow=1, Ehigh=8, 
-                               duration=2.0, 
+                               duration=100.0, 
                                num_triggers=10000, 
                                output_dir=None):
     """
@@ -96,6 +96,9 @@ def generate_cosmic_simulation(geo_full_file_name,
         "PrimaryPositrons", "SecondaryElectrons", "SecondaryPositrons",
         "AlbedoPhotons"
         ]
+    
+    relevant_for_activation = ["AtmosphericNeutrons", "PrimaryProtons","SecondaryProtonsUpward","SecondaryProtonsDownward", "PrimaryAlphas"]
+    
 
     fac = [ViewAtmo, ViewSky,ViewSky, 2*np.pi, 2*np.pi, ViewSky, ViewSky, ViewSky,4*np.pi,4*np.pi,ViewAtmo]    
 
@@ -141,6 +144,10 @@ def generate_cosmic_simulation(geo_full_file_name,
         runfile.write('\n')
 
         for i in range(0, len(Particle)):
+            # Only write the activation sources if we're doing activation
+            if activation and Particle[i] not in relevant_for_activation:
+                print(f"Skipping {Particle[i]} for activation")
+                continue
             Energies = np.logspace(Elow, Ehigh, num=100, endpoint=True, base=10.0)
             filename = f"{dat_name}/{Particle[i]}.dat"
             Output = os.path.join(output_dir if output_dir else '', filename)
@@ -192,7 +199,7 @@ def calculate_activation(geo_full_file_name, Inclination=0, Altitude=550, Elow=1
                  + 'Isotopes.inc1.dat' + '\n')
     lines.append('A.ActivationMode          '
                  + 'ConstantIrradiation  ' + f'{duration} ' + '\n')
-    lines.append('A.ActivationFile          Activation.dat')
+    lines.append(f'A.ActivationFile          ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat')
     lines.append('\n')
     lines.append('\n')
     
@@ -236,7 +243,7 @@ def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, E
 
     lines.append(f'ActivationStep3.FileName                         ActivationStep3For{Altitude}km_{Elow}to{Ehigh}keV\n')
     lines.append('ActivationStep3.Time          ' + f'{duration} ' + '\n')
-    lines.append('ActivationStep3.ActivationSources          Activation.dat')
+    lines.append(f'ActivationStep3.ActivationSources          ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat')
     lines.append('\n')
     lines.append('\n')
     
