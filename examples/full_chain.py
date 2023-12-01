@@ -158,6 +158,7 @@ if args.activation:
     # skip the fisrt and second step if recompute_activation is False
 
     if args.recompute_activation:
+        print("WARNING: recompute_activation is True. This will take a long time.")
         step_1 = cosmic_flux_gen.generate_cosmic_simulation(
                                         geo_full_file_name=geo_file_name, 
                                         activation=True,  # Set activation to True
@@ -165,7 +166,7 @@ if args.activation:
                                         Altitude=alt, 
                                         Elow=energy_low, 
                                         Ehigh=energy_high, 
-                                        duration=sim_time, 
+                                        duration=10, 
                                         output_dir=paths['root'])
         step_2 = cosmic_flux_gen.calculate_activation(
                                         geo_file_name, 
@@ -198,9 +199,12 @@ if args.activation:
         cosima_output2 = subprocess.run(['cosima', step2_file_name], capture_output=True)
         cosima_output2 = cosima_output2.stdout.decode('utf-8')   
     else:
-        #copy ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat from Data to current folder
-        print(f'cp ../cosmic_flux/Data/ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat')
-        subprocess.run(['cp', f'../cosmic_flux/Data/ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat', '.'])
+        activation_file_name = f'ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat'
+        #chack if the file exists
+        if not os.path.exists(f'../cosmic_flux/Data/{activation_file_name}'):
+            print(f'ERROR: {activation_file_name} does not exist in ../cosmic_flux/Data/')
+            sys.exit()
+        subprocess.run(['cp', f'../cosmic_flux/Data/{activation_file_name}', '.'])
 
     #----step 3----#
     step3_file_name = os.path.basename(step_3).replace(".sim","")
