@@ -197,6 +197,9 @@ if args.activation:
         print("\n\nThe step 2 file name is:",step2_file_name)
         cosima_output2 = subprocess.run(['cosima', step2_file_name], capture_output=True)
         cosima_output2 = cosima_output2.stdout.decode('utf-8')   
+    else:
+        #copy ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat from Data to current folder
+        subprocess.run(['cp', f'Data/ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat', '.'])
 
     #----step 3----#
     step3_file_name = os.path.basename(step_3).replace(".sim","")
