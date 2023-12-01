@@ -183,12 +183,12 @@ if args.activation:
                                     duration=sim_time, 
                                     output_dir=paths['root'])
     
+    os.chdir(paths['root'])
+    subprocess.run(['pwd']) 
     if args.recompute_activation:
         #----step 1----#
         step1_file_name = os.path.basename(step_1).replace(".sim","")
         print("\n\nThe step 1 file name is:",step1_file_name)
-        os.chdir(paths['root'])
-        subprocess.run(['pwd']) 
         cosima_output1 = subprocess.run(['cosima', step1_file_name], capture_output=True)
         cosima_output1 = cosima_output1.stdout.decode('utf-8')   
 
@@ -199,7 +199,8 @@ if args.activation:
         cosima_output2 = cosima_output2.stdout.decode('utf-8')   
     else:
         #copy ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat from Data to current folder
-        subprocess.run(['cp', f'Data/ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat', '.'])
+        print(f'cp ../cosmic_flux/Data/ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat')
+        subprocess.run(['cp', f'../cosmic_flux/Data/ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat', '.'])
 
     #----step 3----#
     step3_file_name = os.path.basename(step_3).replace(".sim","")
