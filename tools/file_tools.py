@@ -1638,75 +1638,63 @@ def read_events_from_sim_file(full_file_name,
 
 
 def write_events_file(events, full_file_stub):
-        """
-        Saves events to disk in .hdf5 and .pickle files
+    """
+    Saves events to disk in .hdf5 and .pickle files
+    full_file_stub includes path but not extension
+    """
 
-        full_file_stub includes path but not extension
+    import os
+    import pickle
+    import h5py
+    import awkward as ak
+    import json
 
-        11/12/21 TS
-        """
+    path, file_name = os.path.split(full_file_stub)
+    if file_name != events.meta['sim_file_name']:
+        raise ValueError('Output name does not match meta["sim_file_name"]')
 
-        import os
-        import sys
-        import h5py
-        import pickle
+    with open(full_file_stub + '.meta.pickle', 'wb') as f:
+        pickle.dump(events.meta, f)
 
-        #   Check that file name is same as stored in meta data
-        path, file_name = os.path.split(full_file_stub)
-        if file_name!=events.meta['sim_file_name']:
-            sys.exit('Error in write_events_file - output name '
-                     + "does not match meta['sim_file_name']")
+    with h5py.File(full_file_stub + '.hdf5', 'w') as f:
+        for key in ['truth', 'truth_hits']:
+            group = f.create_group(key)
+            ak_array = getattr(events, key)
+            form, length, container = ak.to_buffers(ak.to_packed(ak_array), container=group)
+            group.attrs['form'] = form.to_json()
+            group.attrs['length'] = length
 
-        #   Save meta structure as pickle
-        with open(os.path.join(
-                full_file_stub
-                + '.meta' + '.pickle'
-                ),
-                'wb') as f:
-            pickle.dump(events.meta, f)
-
-        #   Save events.truth to .h5 file
-
-        with h5py.File(
-            os.path.join(full_file_stub + '.hdf5'),
-            'w',
-            ) as f:
-            for key in events.truth.keys():
-                f.create_dataset('truth/' + key,
-                                 data=events.truth[key],
-                                 )
-            for key in events.truth_hits.keys():
-                f.create_dataset('truth_hits/' + key,
-                                 data=events.truth_hits[key],
-                                 )
 
 def read_events_file(full_file_stub):
     """
     Loads events from .hdf5 and .pickle files
-
     full_file_stub includes path but not extension
-
-    11/12/21 TS
     """
 
     import h5py
     import pickle
+    import awkward as ak
+    import numpy as np
 
-    #   Load meta data
-    with open(full_file_stub + '.meta' + '.pickle', 'rb') as f:
+    with open(full_file_stub + '.meta.pickle', 'rb') as f:
         meta = pickle.load(f)
 
-    #   Load truth
-    with h5py.File(full_file_stub + '.hdf5', 'r',) as f:
+    with h5py.File(full_file_stub + '.hdf5', 'r') as f:
+        truth = ak.from_buffers(
+            ak.forms.from_json(f['truth'].attrs['form']),
+            f['truth'].attrs['length'],
+            {k: np.asarray(v) for k, v in f['truth'].items()}
+        )
 
-        truth = {}
-        truth_hits = {}
-        for key in f['truth'].keys():
-            truth[key] = f['truth'][key][:]
-        for key in f['truth_hits'].keys():
-            truth_hits[key] = f['truth_hits'][key][:]
+        truth_hits = ak.from_buffers(
+            ak.forms.from_json(f['truth_hits'].attrs['form']),
+            f['truth_hits'].attrs['length'],
+            {k: np.asarray(v) for k, v in f['truth_hits'].items()}
+        )
 
     return meta, truth, truth_hits
+
+
 
 
 
@@ -2058,8 +2046,3 @@ def add_evta_file_names(file_names, events):
         )
 
     return file_names
-
-
-
-
-# %%
