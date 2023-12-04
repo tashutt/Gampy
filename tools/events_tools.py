@@ -218,12 +218,12 @@ class Events:
         return np.any(overlaps)
    
 
-    def write_evta_file(self, evta_version='200'):
+    def write_evta_file(self, paths, evta_version='200'):
         """ Writes events structure into evta file """
 
         import file_tools
-
-        file_tools.write_evta_file(self, evta_version)
+        file_tools.write_evta_file(self, paths, evta_version)
+        return True
 
     def calculate_order(self,
                            num_hits_list,
