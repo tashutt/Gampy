@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Mar  3 22:25:33 2022
-
-Colletion of tools to read .sim file and crate events
-
 Parsing has long list of problems / needed improvements - see comments
 
-@author: tshutt
+TODO: Move any file file handling out of events_tools and to here
+TODO: Consider splitting sim file tools from other file tools
 
+@author: tshutt
 awkward implemented
 
-TODO 
-cell_r global <-> local coordinates
 """
 
 class Sim_File:
