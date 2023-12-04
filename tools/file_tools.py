@@ -778,7 +778,9 @@ class Sim_File:
                 | (parent_types == 3)
                 | (parent_types == 4)
                 | ((parent_types == 1) & (incident_particle != 1)))
+            & (parent_detectors != 0)
             ]
+
         #   Add energy to track by looping over parents.  Deal with
         #   split cell parents
         for npt in np.unique(parents[child_x_rays-1]):
@@ -1635,156 +1637,138 @@ def read_events_from_sim_file(full_file_name,
 
 
 
-import os
-import sys
-import pickle
+def write_events_file(events, full_file_stub):
+        """
+        Saves events to disk in .hdf5 and .pickle files
 
-def write_events_file(events, full_sim_file_name):
+        full_file_stub includes path but not extension
+
+        11/12/21 TS
+        """
+
+        import os
+        import sys
+        import h5py
+        import pickle
+
+        #   Check that file name is same as stored in meta data
+        path, file_name = os.path.split(full_file_stub)
+        if file_name!=events.meta['sim_file_name']:
+            sys.exit('Error in write_events_file - output name '
+                     + "does not match meta['sim_file_name']")
+
+        #   Save meta structure as pickle
+        with open(os.path.join(
+                full_file_stub
+                + '.meta' + '.pickle'
+                ),
+                'wb') as f:
+            pickle.dump(events.meta, f)
+
+        #   Save events.truth to .h5 file
+
+        with h5py.File(
+            os.path.join(full_file_stub + '.hdf5'),
+            'w',
+            ) as f:
+            for key in events.truth.keys():
+                f.create_dataset('truth/' + key,
+                                 data=events.truth[key],
+                                 )
+            for key in events.truth_hits.keys():
+                f.create_dataset('truth_hits/' + key,
+                                 data=events.truth_hits[key],
+                                 )
+
+def read_events_file(full_file_stub):
     """
-    Saves events to disk, in two .h5s and a .pickle.
+    Loads events from .hdf5 and .pickle files
 
     full_file_stub includes path but not extension
 
     11/12/21 TS
     """
 
-    # Check that the file name is the same as stored in meta data
-    path, file_name = os.path.split(full_sim_file_name)
-    if file_name != events.meta['sim_file_name']:
-        sys.exit('Error in write_events_file - output name '
-                 + "does not match meta['sim_file_name']")
-
-    # Save meta structure as a pickle
-    with open(os.path.join(
-            full_sim_file_name
-            + '.meta' + '.pickle'
-    ), 'wb') as f:
-        pickle.dump(events.meta, f)
-
-    # Save events.truth to .pickle file
-    with open(os.path.join(
-            full_sim_file_name
-            + '.truth' + '.pickle'
-    ), 'wb') as f:
-        pickle.dump(events.truth, f)
-
-    # Save events.truth_hits to .pickle file
-    with open(os.path.join(
-            full_sim_file_name
-            + '.truth_hits' + '.pickle'
-    ), 'wb') as f:
-        pickle.dump(events.truth_hits, f)
-
-
-def read_events_file(full_file_name):
-    """
-    Loads events from disk
-
-    full_file_stub includes path but not extension
-
-    11/12/21 TS
-    """
-
-    import deepdish as dd
+    import h5py
     import pickle
 
     #   Load meta data
-    with open(full_file_name + '.meta' + '.pickle', 'rb') as f:
+    with open(full_file_stub + '.meta' + '.pickle', 'rb') as f:
         meta = pickle.load(f)
 
-    #   Load events.truth
-    truth = dd.io.load(full_file_name + '.truth' + '.h5')
+    #   Load truth
+    with h5py.File(full_file_stub + '.hdf5', 'r',) as f:
 
-    #   Load events.truth_hits
-    truth_hits = dd.io.load(full_file_name + '.truth_hits' + '.h5')
+        truth = {}
+        truth_hits = {}
+        for key in f['truth'].keys():
+            truth[key] = f['truth'][key][:]
+        for key in f['truth_hits'].keys():
+            truth_hits[key] = f['truth_hits'][key][:]
 
     return meta, truth, truth_hits
 
-def write_evta_file(events, version='100'):
+
+
+
+
+def write_evta_file(events, paths, version='200'):
     """
     Writes events in events['measured_hits'] to an .evta file
+    # bad implementation: fix the position/energy uncertainty
     """
 
     import numpy as np
+    import awkward as ak
+    import os
 
     #   Get evta file name
-    events.meta['file_names'] = add_evta_file_names(
-        events.meta['file_names'],
-        events
-        )
+    events.meta['file_names'] = events.meta['sim_file_name'] 
 
     #   Open file, write header
-    f = open(events.meta['file_names']['path_evta'] + '.evta', 'w')
+    f = open(os.path.join(paths['root'], 
+                          events.meta['file_names']) + '.evta', 'w')
 
     f.write('Version ' + version + '\n')
     f.write('Type EVTA\n')
     f.write('\n')
 
-    if version=='100':
-
-        for ne in range(len(events.measured_hits['num_hits'])):
-
-            f.write('SE\n')
-            f.write(f'ID {events.truth["triggered_id"][ne]:1.0f}\n')
-            f.write(f'TI {events.measured_hits["time"][ne]:20.9f}\n')
-
-            for nh in range(events.measured_hits['num_hits'][ne]):
-                z = (
-                    events.measured_hits['r'][2,nh,ne]
-                    + events.meta['params'].cells['geomaga_reference_zo']
-                    )
-                f.write(
-                    'HT 5;'
-                    + f'{events.measured_hits["r"][0,nh,ne]*100:10.7f};'
-                    + f'{events.measured_hits["r"][1,nh,ne]*100:10.7f};'
-                    + f'{z*100:10.7f};'
-                    + f'{events.measured_hits["energy"][nh,ne]:10.7f}\n'
-                    )
-
-    elif version=='200':
+    if version=='200':
 
         #   THIS IGNORES RECOMBINATION FLUCTUATIONS FOR MULTIPLE CELL HITS
         #   AND IN ANY CASE THIS CALCULAITON SHOULD HAPPEN
         #   IN response_tools
 
         #   Start with convenient varibles
-        sigmaxy = events.meta['params'] \
-            .constants['spatial_resolution']['sigma_xy']
-        sigmaz = events.meta['params'] \
-            .constants['spatial_resolution']['sigma_z']
-        sigma_o = events.meta['params'] \
-            .constants['simple_energy_resolution']['sigma_o']
-        energy_o = events.meta['params'] \
-            .constants['simple_energy_resolution']['energy_o']
-        sigma_f = events.meta['params'] \
-            .constants['simple_energy_resolution']['sigma_f']
+        sigmaxy = 0.5/1000
+        sigmaz  = 0.5/1000
+        
         sigma_energy = np.sqrt(
-            (sigma_o * energy_o)**2
-            * events.measured_hits['energy']
-            / energy_o
-            + sigma_f**2
+            (0.01*events.measured_hits['energy'])**2 + 2.5**2
             )
 
-        for ne in range(len(events.measured_hits['num_hits'])):
-
+        for ne in range(len(events.measured_hits['energy'])):
+            truth_mask = events.measured_hits['_good_mask']
             f.write('SE\n')
-            f.write(f'ID {events.truth["triggered_id"][ne]:1.0f}\n')
-            f.write(f'TI {events.measured_hits["time"][ne]:20.9f}\n')
+            f.write(f'ID {events.truth["triggered_id"][truth_mask][ne]:1.0f}\n')
+            f.write(f'TI {events.measured_hits["time"][ne]:2.9f}\n')
 
-            for nh in range(events.measured_hits['num_hits'][ne]):
-                z = (events.measured_hits['r'][2,nh,ne]
-                     + events.meta['params']. \
-                         cells['geomaga_reference_zo'])
+            num_hits = ak.num(events.measured_hits['energy'])
+            for nh in range(num_hits[ne]):
+                z = (
+                    events.measured_hits['r'][ne,2,nh]
+                    #+ events.meta['params'].cells['geomaga_reference_zo']
+                    )
                 f.write(
-                    'HT 5; '
-                    + f'{events.measured_hits["r"][0,nh,ne]*100:10.7f}; '
-                    + f'{events.measured_hits["r"][1,nh,ne]*100:10.7f}; '
-                    + f'{z*100:10.7f}; '
-                    + f'{events.measured_hits["energy"][nh,ne]:10.7f}; '
+                    'HT 5;'
+                    + f'{events.measured_hits["r"][ne,0,nh]*100:10.7f};'
+                    + f'{events.measured_hits["r"][ne,1,nh]*100:10.7f};'
+                    + f'{events.measured_hits["r"][ne,2,nh]*100:10.7f};'
+                    + f'{events.measured_hits["energy"][ne,nh]:10.7f}'
                     + f'{sigmaxy*100:10.7f}; '
                     + f'{sigmaxy*100:10.7f}; '
                     + f'{sigmaz*100:10.7f}; '
-                    + f'{sigma_energy[nh,ne]:10.7f}\n'
+                    + f'{sigma_energy[ne,nh]:10.7f}\n'
                     )
 
 def fix_sim_file_ht_lines(full_sim_file_name_in,
