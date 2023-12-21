@@ -238,8 +238,12 @@ def find_hit_quanta(energy, charge_fraction, params):
         for sub_array in a:
             sum_sub_array = np.sum(sub_array)
             if sum_sub_array < 0:
-                sub_array = ak.with_field(
-                    sub_array, np.where(sub_array < 0, 0, sub_array), 0)
+                try:
+                    sub_array = ak.with_field(
+                        sub_array, np.where(sub_array < 0, 0, sub_array), 0)
+                except:
+                    print("ERROR in replace_negative_elements")
+                    sub_array = np.where(sub_array < 0, 0, sub_array)
             new_arrays.append(sub_array)
         return ak.Array(new_arrays)
 
