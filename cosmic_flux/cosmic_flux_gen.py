@@ -12,7 +12,8 @@ def generate_cosmic_simulation(geo_full_file_name,
                                Elow=1, Ehigh=8, 
                                duration=100.0, 
                                num_triggers=10000, 
-                               output_dir=None):
+                               output_dir=None,
+                               only_photons=False):
     """
     Generate cosmic flux and create simulation configuration lines, for both activation and non-activation modes.
 
@@ -59,9 +60,9 @@ def generate_cosmic_simulation(geo_full_file_name,
         lines.append('CheckForOverlaps 1000 0.01 \n')
         lines.append('PhysicsListEM    LivermorePol\n')
         lines.append('\n')
-        lines.append('StoreCalibrate                 true\n')
-        lines.append('StoreSimulationInfo            true\n')
-        lines.append('StoreOnlyEventsWithEnergyLoss  true  ' + '// Only relevant if no trigger criteria is given!\n')
+        #lines.append('StoreCalibrate                 true\n')
+        #lines.append('StoreSimulationInfo            true\n')
+        #lines.append('StoreOnlyEventsWithEnergyLoss  true  ' + '// Only relevant if no trigger criteria is given!\n')
         lines.append('DiscretizeHits                 true\n')
         lines.append('PreTriggerMode                 everyeventwithhits\n')
         lines.append('\n')
@@ -98,7 +99,7 @@ def generate_cosmic_simulation(geo_full_file_name,
         ]
     
     relevant_for_activation = ["AtmosphericNeutrons", "PrimaryProtons","SecondaryProtonsUpward","SecondaryProtonsDownward", "PrimaryAlphas"]
-    
+    photons = ["CosmicPhotons", "AlbedoPhotons"]
 
     fac = [ViewAtmo, ViewSky,ViewSky, 2*np.pi, 2*np.pi, ViewSky, ViewSky, ViewSky,4*np.pi,4*np.pi,ViewAtmo]    
 
@@ -148,6 +149,11 @@ def generate_cosmic_simulation(geo_full_file_name,
             if activation and Particle[i] not in relevant_for_activation:
                 print(f"Skipping {Particle[i]} for activation")
                 continue
+              
+            if only_photons and Particle[i] not in photons:
+                print(f"Skipping {Particle[i]} for only photons regime")
+                continue
+              
             Energies = np.logspace(Elow, Ehigh, num=100, endpoint=True, base=10.0)
             filename = f"{dat_name}/{Particle[i]}.dat"
             Output = os.path.join(output_dir if output_dir else '', filename)
