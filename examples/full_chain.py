@@ -26,6 +26,7 @@ parser = argparse.ArgumentParser(description='choose sim options')
 parser.add_argument('--events', type=int, default=10000, help='specify number of events. Default 5000')
 parser.add_argument('-activation', action='store_true', default=False, help='Activate activation. Specify duration instead of event count.')
 parser.add_argument('-analysis', action='store_true', default=False, help='Do the analysis')
+parser.add_argument('-only_photons', action='store_true', default=False, help='Only have photons as sources')
 parser.add_argument('-recompute_activation', action='store_true', default=False, help='Recompute the activation. Important for adding more materials')
 parser.add_argument("--eng", type=str, default='2-8', help="Specify an energy range in keV, 'start-end', default 2-8")
 parser.add_argument('--alt', type=int, default=550, help="Altitude in km. Default 550.")
@@ -74,6 +75,7 @@ inc = args.inc
 alt = args.alt
 energy_low = int(args.eng.split('-')[0])
 energy_high = int(args.eng.split('-')[-1])
+only_photons = bool(args.only_photons)
 
 if os.path.exists(paths['root']):    
     subprocess.run(['rm', '-rf', paths['root']])
@@ -109,7 +111,8 @@ source_file_path =  cosmic_flux_gen.generate_cosmic_simulation(
                                             Elow=energy_low, 
                                             Ehigh=energy_high, 
                                             num_triggers=num_events, 
-                                            output_dir=paths['root'])
+                                            output_dir=paths['root'],
+                                            only_photons=only_photons)
                                 
 # get the name from the path 
 source_file_name = os.path.basename(source_file_path).replace(".sim","")
