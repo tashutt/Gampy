@@ -861,19 +861,31 @@ class Sim_File:
         merged_brem_photo = interactions[merged_brem_photo_mask]
         #   Originating track is grandparent of the photo-absorption.
         #   Add energy to track by looping over grandparents.
+        #   Also need to deal with very rare case of grand parent not
+        #   having any HT lines - if so, then there is no track to
+        #   merge with, so remove from this treatment
+        bad = np.zeros(merged_brem_photo.size, dtype=bool)
         for ngp in np.unique(parents[parents[merged_brem_photo-1]-1]):
-            if ~multi_cell_interactions_mask[ngp-1]:
-                energies[ngp-1] += energies[merged_brem_photo[
-                    parents[parents[merged_brem_photo-1]-1] == ngp
-                    ]-1].sum()
+            gp_has_hits = (self.raw_event['ht']['interaction_id']
+                           == interactions[ngp-1]).sum()
+            if gp_has_hits > 0:
+                if ~multi_cell_interactions_mask[ngp-1]:
+                    energies[ngp-1] += energies[merged_brem_photo[
+                        parents[parents[merged_brem_photo-1]-1] == ngp
+                        ]-1].sum()
+                else:
+                    for cell, nc in zip(split_cells[ngp-1],
+                                        range(len(split_cells[ngp-1]))):
+                        split_energies[ngp-1][nc] \
+                            += energies[merged_brem_photo[
+                                (parents[parents[merged_brem_photo-1]-1]==ngp)
+                                & (cells[merged_brem_photo-1] == cell)
+                                ]-1].sum()
             else:
-                for cell, nc in zip(split_cells[ngp-1],
-                                    range(len(split_cells[ngp-1]))):
-                    split_energies[ngp-1][nc] \
-                        += energies[merged_brem_photo[
-                            (parents[parents[merged_brem_photo-1]-1] == ngp)
-                            & (cells[merged_brem_photo-1] == cell)
-                            ]-1].sum()
+                bad[parents[parents[merged_brem_photo-1]-1]==ngp] = True
+
+        #   Remove the rare case
+        merged_brem_photo = merged_brem_photo[~bad]
 
         if blab:
             blab_on('merged brem merged')
@@ -952,6 +964,8 @@ class Sim_File:
                 (self.raw_event['ht']['interaction_id']==interactions[nsi])
                 & (self.raw_event['ht']['cell'] != 0)
                 )
+            print(f'interaction: {interactions[nsi]:d}')
+            print(f'ht_mask.sum: {ht_mask.sum():d}')
             r_cell = np.array([
                 self.raw_event['ht']['rx'][np.nonzero(ht_mask)[0][0]],
                 self.raw_event['ht']['ry'][np.nonzero(ht_mask)[0][0]],
@@ -1060,9 +1074,9 @@ class Sim_File:
                 - (energies.sum() + front_acd_energy + back_acd_energy))
             print(f'Error, event {event_num:d}: energy non-conservation of '
                   + f'{energy_difference:5.3f} keV')
-        # if abs(deposited_energy - total_energy) > 0.5:
-        #     sys.exit('Error: active energy not HT sum, event '
-        #              + str(event_num))
+        if abs(deposited_energy - total_energy) / deposited_energy > 1e-4:
+             sys.exit('Error: active energy not HT sum, event '
+                      + str(event_num))
 
         #   Package output
         parsed_event = {}
