@@ -1749,7 +1749,7 @@ def write_evta_file(events, paths, version='200'):
         mh = events.measured_hits
         acd_pass = ~mh['ACD_activated']
 
-        sigma_energy = np.sqrt((0.015*mh['energy'][acd_pass])**2 + 4**2)
+        sigma_energy = np.sqrt((0.015*mh['energy'])**2 + 4**2)
 
         for ne in range(len(mh['energy'])):
             if acd_pass[ne]:
@@ -1775,8 +1775,7 @@ def write_evta_file(events, paths, version='200'):
                         + f'{sigmaz*100:10.7f}; '
                         + f'{sigma_energy[ne,nh]:10.7f}\n'
                         )
-            else:
-                print(ne, "vetoed because of ACD")
+
 
 def fix_sim_file_ht_lines(full_sim_file_name_in,
                           full_geo_file_name,
