@@ -141,7 +141,7 @@ def apply_detector_response(events):
     i_cells = events.truth_hits['cell_index']
     
     # Define a small constant to avoid division by very small numbers
-    epsilon = 1
+    epsilon = 0.45
 
     safe_denominator = cell_q[i_cells] + epsilon
 
@@ -183,8 +183,14 @@ def apply_detector_response(events):
             measured_hits['cell'],
             events.meta['geo_params'],
             )
-    
-    
+        
+    #   Measured light from ACD
+    measured_acd_energy = events.truth['front_acd_energy'] + events.truth['back_acd_energy'] \
+        + events.params.light['spe_noise'] \
+            * ak.Array(randn(len(events.truth['front_acd_energy'])) )
+
+    acd_activated = measured_acd_energy > events.params.light['spe_threshold']
+
     #   Time of events is directly from truth.  Probably should add an error
     #   here based on light readout timing
     measured_hits['time'] = events.truth['time']
@@ -199,8 +205,10 @@ def apply_detector_response(events):
     measured_hits['total_energy'] = measured_hits['total_energy'][good_mask]
     measured_hits['cell_index']   = measured_hits['cell_index'][good_mask]
     measured_hits['triggered']    = events.truth_hits['triggered'][good_mask]
+    measured_hits['ACD_activated'] = acd_activated[good_mask]
     
     measured_hits['_good_mask']   = good_mask
+    measured_hits['_bad_mask']    = ~good_mask
 
     events.measured_hits = measured_hits
     return events
