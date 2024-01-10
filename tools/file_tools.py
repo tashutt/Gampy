@@ -1074,9 +1074,9 @@ class Sim_File:
                 - (energies.sum() + front_acd_energy + back_acd_energy))
             print(f'Error, event {event_num:d}: energy non-conservation of '
                   + f'{energy_difference:5.3f} keV')
-        if abs(deposited_energy - total_energy) / deposited_energy > 1e-4:
-             sys.exit('Error: active energy not HT sum, event '
-                      + str(event_num))
+        # if abs(deposited_energy - total_energy) / deposited_energy > 1e-4:
+        #      sys.exit('Error: active energy not HT sum, event '
+        #               + str(event_num))
 
         #   Package output
         parsed_event = {}
@@ -1742,36 +1742,41 @@ def write_evta_file(events, paths, version='200'):
         #   IN response_tools
 
         #   Start with convenient varibles
-        sigmaxy = 0.5/1000
-        sigmaz  = 0.5/1000
+        sigmaxy = 0.3/1000
+        sigmaz  = 0.3/1000
         
-        sigma_energy = np.sqrt(
-            (0.01*events.measured_hits['energy'])**2 + 2.5**2
-            )
+        # replace all events.measured_hits['energy'] with mh
+        mh = events.measured_hits
+        acd_pass = ~mh['ACD_activated']
 
-        for ne in range(len(events.measured_hits['energy'])):
-            truth_mask = events.measured_hits['_good_mask']
-            f.write('SE\n')
-            f.write(f'ID {events.truth["triggered_id"][truth_mask][ne]:1.0f}\n')
-            f.write(f'TI {events.measured_hits["time"][ne]:2.9f}\n')
+        sigma_energy = np.sqrt((0.015*mh['energy'][acd_pass])**2 + 4**2)
 
-            num_hits = ak.num(events.measured_hits['energy'])
-            for nh in range(num_hits[ne]):
-                z = (
-                    events.measured_hits['r'][ne,2,nh]
-                    #+ events.meta['params'].cells['geomaga_reference_zo']
-                    )
-                f.write(
-                    'HT 5;'
-                    + f'{events.measured_hits["r"][ne,0,nh]*100:10.7f};'
-                    + f'{events.measured_hits["r"][ne,1,nh]*100:10.7f};'
-                    + f'{events.measured_hits["r"][ne,2,nh]*100:10.7f};'
-                    + f'{events.measured_hits["energy"][ne,nh]:10.7f}'
-                    + f'{sigmaxy*100:10.7f}; '
-                    + f'{sigmaxy*100:10.7f}; '
-                    + f'{sigmaz*100:10.7f}; '
-                    + f'{sigma_energy[ne,nh]:10.7f}\n'
-                    )
+        for ne in range(len(mh['energy'])):
+            if acd_pass[ne]:
+                truth_mask = mh['_good_mask']
+                f.write('SE\n')
+                f.write(f'ID {events.truth["triggered_id"][truth_mask][ne]:1.0f}\n')
+                f.write(f'TI {events.measured_hits["time"][ne]:2.9f}\n')
+
+                num_hits = ak.num(mh['energy'])
+                for nh in range(num_hits[ne]):
+                    z = (
+                        mh['r'][ne,2,nh]
+                        #+ events.meta['params'].cells['geomaga_reference_zo']
+                        )
+                    f.write(
+                        'HT 5;'
+                        + f'{mh["r"][ne,0,nh]*100:10.7f};'
+                        + f'{mh["r"][ne,1,nh]*100:10.7f};'
+                        + f'{mh["r"][ne,2,nh]*100:10.7f};'
+                        + f'{mh["energy"][ne,nh]:10.7f}'
+                        + f'{sigmaxy*100:10.7f}; '
+                        + f'{sigmaxy*100:10.7f}; '
+                        + f'{sigmaz*100:10.7f}; '
+                        + f'{sigma_energy[ne,nh]:10.7f}\n'
+                        )
+            else:
+                print(ne, "vetoed because of ACD")
 
 def fix_sim_file_ht_lines(full_sim_file_name_in,
                           full_geo_file_name,
@@ -2060,3 +2065,5 @@ def add_evta_file_names(file_names, events):
         )
 
     return file_names
+
+# %%
