@@ -8,7 +8,7 @@ TODO: Consider splitting sim file tools from other file tools
 
 @author: tshutt
 awkward implemented
-
+calorimeter implemented
 """
 
 class Sim_File:
@@ -651,6 +651,11 @@ class Sim_File:
             else:
                 back_acd_energy += self.raw_event['ht']['energy'][nh]
 
+        calorimeter_energy = 0.0
+        ht_cal_mask = self.raw_event['ht']['detector']==2
+        for nh in np.nonzero(ht_cal_mask)[0]:
+            calorimeter_energy += self.raw_event['ht']['energy'][nh]
+        
         #TODO: get rid of this when finished checking
         def blab_first():
             split_energy_sum = sum([energy for split in split_energies
@@ -1090,6 +1095,7 @@ class Sim_File:
         parsed_event['total_energy'] = total_energy
         parsed_event['front_acd_energy'] = front_acd_energy
         parsed_event['back_acd_energy'] = back_acd_energy
+        parsed_event['calorimeter_energy'] = calorimeter_energy
         parsed_event['track_energy'] = track_energy
         parsed_event['clean_entrance'] = clean_entrance
         parsed_event['entrance_scatter_energy'] = entrance_scatter_energy
@@ -1571,6 +1577,8 @@ def read_events_from_sim_file(full_file_name,
                 np.sum(sim_file.parsed_event['front_acd_energy']),
                 'back_acd_energy':
                 np.sum(sim_file.parsed_event['back_acd_energy']),
+                'calorimeter_energy':
+                np.sum(sim_file.parsed_event['calorimeter_energy']),
                 'track_energy':
                 np.sum(sim_file.parsed_event['track_energy']),
                 'clean_entrance':
