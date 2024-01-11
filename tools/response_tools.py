@@ -12,7 +12,7 @@ File io: sim_file_tools
 Signficant rewrite of original Matlab routines, initial port 8/10/2020
 Major repackaging 3/21
 Rewrite to awkward arrays 9/23 BT
-
+implemented calorimeter readout, 100x spc noise
 @author: tshutt
 """
 
@@ -191,6 +191,18 @@ def apply_detector_response(events):
 
     acd_activated = measured_acd_energy > events.params.light['spe_threshold']
 
+
+    #  measure calorimenter stuff
+    spe_calorimeter_noise_multiplier = 100
+    CALORIMETER_ACTIVATION_ENERGY = 1000 # 1MeV, a guess
+
+    measured_calorimeter_energy = events.truth['calorimeter_energy'] \
+        + spe_calorimeter_noise_multiplier * events.params.light['spe_noise'] \
+            * ak.Array(randn(len(events.truth['calorimeter_energy'])) )
+    
+    measured_hits['calorimeter_energy'] = measured_calorimeter_energy
+    calorimeter_activated = measured_calorimeter_energy > CALORIMETER_ACTIVATION_ENERGY
+
     #   Time of events is directly from truth.  Probably should add an error
     #   here based on light readout timing
     measured_hits['time'] = events.truth['time']
@@ -206,6 +218,8 @@ def apply_detector_response(events):
     measured_hits['cell_index']   = measured_hits['cell_index'][good_mask]
     measured_hits['triggered']    = events.truth_hits['triggered'][good_mask]
     measured_hits['ACD_activated'] = acd_activated[good_mask]
+    measured_hits['calorimeter_energy'] = measured_hits['calorimeter_energy'][good_mask]
+    measured_hits['calorimeter_activated'] = calorimeter_activated[good_mask]
     
     measured_hits['_good_mask']   = good_mask
     measured_hits['_bad_mask']    = ~good_mask
