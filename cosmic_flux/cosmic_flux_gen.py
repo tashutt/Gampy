@@ -229,7 +229,7 @@ def calculate_activation(geo_full_file_name, Inclination=0, Altitude=550, Elow=1
     
     return source_file_name2
 
-def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, Ehigh=8, duration=31556736, output_dir=None):
+def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, Ehigh=8, duration=31556736, output_dir=None, dat_name=None):
     
     source_file_name3 = f"ActivationStep3For{Altitude}km_{Elow}to{Ehigh}keV.source"
     
@@ -249,7 +249,11 @@ def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, E
 
     lines.append(f'ActivationStep3.FileName                         ActivationStep3For{Altitude}km_{Elow}to{Ehigh}keV\n')
     lines.append('ActivationStep3.Time          ' + f'{duration} ' + '\n')
-    lines.append(f'ActivationStep3.ActivationSources          ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat')
+    if dat_name is None:
+        lines.append(f'ActivationStep3.ActivationSources          ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat')
+    else:
+        lines.append(f'ActivationStep3.ActivationSources          {dat_name}' )
+        
     lines.append('\n')
     lines.append('\n')
     
