@@ -1756,11 +1756,12 @@ def write_evta_file(events, paths, version='200'):
         # replace all events.measured_hits['energy'] with mh
         mh = events.measured_hits
         acd_pass = ~mh['ACD_activated']
+        cal_pass = ~mh['calorimeter_activated']
 
         sigma_energy = np.sqrt((0.015*mh['energy'])**2 + 4**2)
 
         for ne in range(len(mh['energy'])):
-            if acd_pass[ne]:
+            if acd_pass[ne] and cal_pass[ne]:
                 truth_mask = mh['_good_mask']
                 f.write('SE\n')
                 f.write(f'ID {events.truth["triggered_id"][truth_mask][ne]:1.0f}\n')
