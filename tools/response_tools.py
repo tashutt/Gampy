@@ -12,7 +12,7 @@ File io: sim_file_tools
 Signficant rewrite of original Matlab routines, initial port 8/10/2020
 Major repackaging 3/21
 Rewrite to awkward arrays 9/23 BT
-implemented calorimeter readout, 100x spc noise
+
 @author: tshutt
 """
 
@@ -69,7 +69,7 @@ def apply_detector_response(events):
     import copy
     import geometry_tools
 
-    print('Applying detector response')
+    print('Applying detector response', events.params.coarse_grids['signal_fraction'], "Signal Fraction")
 
 
     #   Calculate detector params
@@ -87,8 +87,7 @@ def apply_detector_response(events):
                              events.params)
     
     quanta['q']['measured'] \
-                = quanta['q']['collected'] \
-                 * events.params.coarse_grids['signal_fraction'] \
+                = quanta['q']['collected'] * events.params.coarse_grids['signal_fraction'] \
                  + events.params.coarse_grids['noise'] \
                     * np.sqrt(events.params.coarse_grids['signal_sharing']) \
                      * ak.Array([randn(L) for L in ak.num(quanta['q']['collected'])])
@@ -101,6 +100,7 @@ def apply_detector_response(events):
         / events.params.coarse_grids['signal_fraction'] \
         / charge_fraction
     
+
     #   Measured light adds readout spe noise
     quanta['p']['measured'] = quanta['p']['collected'] \
         + events.params.light['spe_noise'] \
@@ -141,13 +141,17 @@ def apply_detector_response(events):
     i_cells = events.truth_hits['cell_index']
     
     # Define a small constant to avoid division by very small numbers
-    epsilon = 0.45
+    epsilon = 0.00000000000045
 
     safe_denominator = cell_q[i_cells] + epsilon
+    bad_q_in_cell = (cell_q[i_cells] < events.params.coarse_grids['noise'] *
+                   np.sqrt(events.params.coarse_grids['signal_sharing']) *
+                   events.params.coarse_grids['threshold_sigma']) 
 
     # Apply the scaling factor to the energy calculation
-    measured_hits['energy'] = (cell_energy[i_cells] / safe_denominator) * quanta_q 
-        
+    measured_hits['energy'] = np.where(bad_q_in_cell, 
+                                   0,  # Energy is 0 when bad_q_in_cell is True
+                                   (cell_energy[i_cells] / safe_denominator) * quanta_q)
     
     triggered_p = cell_p[i_cells] > events.params.light['spe_threshold']
     
@@ -163,7 +167,7 @@ def apply_detector_response(events):
     
     #   Charge signal
     measured_hits['quanta_q'] = copy.copy(quanta_q)
-    measured_hits['r'] = smear_space(events.truth_hits['r'], events.params)
+    measured_hits['r'] = smear_space(events.truth_hits['r'], events.params, events.truth_hits['energy'])
     
     #   Save trigger information - in truth hits, since this is
     #   effectively truth data that is not known as a measurement
@@ -193,14 +197,12 @@ def apply_detector_response(events):
 
 
     #  measure calorimenter stuff
-    spe_calorimeter_noise_multiplier = 100
-    CALORIMETER_ACTIVATION_ENERGY = 1000 # 1MeV, a guess
+    CALORIMETER_ACTIVATION_ENERGY = 15_000 # keV, a guess
 
-    measured_calorimeter_energy = events.truth['calorimeter_energy'] \
-        + spe_calorimeter_noise_multiplier * events.params.light['spe_noise'] \
-            * ak.Array(randn(len(events.truth['calorimeter_energy'])) )
+    measured_calorimeter_energy = calculate_measured_calorimeter_energy(events.truth['calorimeter_energy'],
+                                                                        events.params)
     
-    measured_hits['calorimeter_energy'] = measured_calorimeter_energy
+    measured_hits['calorimeter_energy'] = np.where(measured_calorimeter_energy < 0, 0, measured_calorimeter_energy)
     calorimeter_activated = measured_calorimeter_energy > CALORIMETER_ACTIVATION_ENERGY
 
     #   Time of events is directly from truth.  Probably should add an error
@@ -212,6 +214,7 @@ def apply_detector_response(events):
     measured_hits['r']      = measured_hits['r'][good_mask]
     measured_hits['r_cell'] = measured_hits['r_cell'][good_mask]
     measured_hits['time']   = events.truth['time'][good_mask]
+    measured_hits['triggered_id'] = events.truth['triggered_id'][good_mask]
     measured_hits['cell']   = measured_hits['cell'][good_mask]
     measured_hits['quanta_q']     = measured_hits['quanta_q'][good_mask]
     measured_hits['total_energy'] = measured_hits['total_energy'][good_mask]
@@ -230,6 +233,38 @@ def apply_detector_response(events):
     return events
 
 ### HELPER FUNCTIONS
+def replace_negative_elements(a):
+    import awkward as ak
+    import numpy as np
+
+    new_arrays = []
+    for sub_array in a:
+        sum_sub_array = np.sum(sub_array)
+        if sum_sub_array < 0:
+            try:
+                sub_array = ak.with_field(
+                    sub_array, np.where(sub_array < 0, 0, sub_array), 0)
+            except:
+                print("ERROR in replace_negative_elements")
+                sub_array = np.where(sub_array < 0, 0, sub_array)
+        new_arrays.append(sub_array)
+    return ak.Array(new_arrays)
+
+
+def calculate_measured_calorimeter_energy(cal_ene, params):
+    import numpy as np
+    import awkward as ak
+    from numpy.random import randn
+
+    ph_collected = cal_ene * params.light['collection'] + \
+                   0.1* np.sqrt(cal_ene* (1 - params.light['collection']) * params.light['collection']) * \
+                   ak.Array(randn(len(cal_ene)))
+    
+    ph_measured = ph_collected + params.light['spe_noise'] * ak.Array(randn( len(cal_ene) ) )
+
+    return ph_measured / params.light['collection'] 
+
+
 def find_hit_quanta(energy, charge_fraction, params):
     """
     Given the energy in a hit, generates quanta of initial and
@@ -254,20 +289,6 @@ def find_hit_quanta(energy, charge_fraction, params):
 
     def round_(a):
         return ak.values_astype(a, "int64")
-
-    def replace_negative_elements(a):
-        new_arrays = []
-        for sub_array in a:
-            sum_sub_array = np.sum(sub_array)
-            if sum_sub_array < 0:
-                try:
-                    sub_array = ak.with_field(
-                        sub_array, np.where(sub_array < 0, 0, sub_array), 0)
-                except:
-                    print("ERROR in replace_negative_elements")
-                    sub_array = np.where(sub_array < 0, 0, sub_array)
-            new_arrays.append(sub_array)
-        return ak.Array(new_arrays)
 
     q = {}
     p = {}
@@ -342,7 +363,7 @@ def find_hit_quanta(energy, charge_fraction, params):
 
 
 
-def smear_space(r, params):
+def smear_space(r, params, energy=[]):
     """
     Adapted for awkward array input, constructing a new array.
     """
@@ -355,21 +376,57 @@ def smear_space(r, params):
     sigma['transverse'] = 0
     sigma['longitudinal'] = 0
 
+    
     transverse_part = (params.spatial_resolution['sigma_xy']**2 +
                        (sigma['transverse'] *
                         params.charge_drift['diffusion_fraction'])**2)**0.5
     longitudinal_part = (params.spatial_resolution['sigma_z']**2 +
                          (sigma['longitudinal'] *
                           params.charge_drift['diffusion_fraction'])**2)**0.5
+    
+
+    ENERGY = [50,300,300,750,1000]
+    Rrms   = [0.02*1e-3, 
+              0.09*1e-3, 
+              0.05*1e-3,                            
+              0.17*1e-3, 
+              0.08*1e-3]
+
+    def rrms_quadratic_fit(energy):
+        a = -3.47527666e-10
+        b = 4.64690829e-07
+        c = -1e-5
+
+        rrms = a * energy**2 + b * energy + c
+        return ak.max(rrms, params.spatial_resolution['sigma_xy'])
 
     rx, ry, rz = r[:, 0], r[:, 1], r[:, 2]
     num_elements = ak.num(rx)
 
-    new_rx = ak.Array([[subarr + randn(n) * transverse_part]
+    # if there is 'spatial_resolution_multiplier' in params.spatial_resolution then set SRM to that value otherwise set it to 1
+    SRM = params.spatial_resolution.get('spatial_resolution_multiplier', 1)
+
+    if len(energy) > 0:
+        temp_rx, temp_ry, temp_rz = [], [], []
+        for i, n in enumerate(num_elements):
+            if n > 0:
+                temp_qf = rrms_quadratic_fit(energy[i]) * SRM
+                temp_rx.append([rx[i] + randn(n) * temp_qf])
+                temp_ry.append([ry[i] + randn(n) * temp_qf])
+                temp_rz.append([rz[i] + randn(n) * temp_qf])
+            else:
+                temp_rx.append([rx[i]])
+                temp_ry.append([ry[i]])
+                temp_rz.append([rz[i]])
+        new_rx = ak.Array(temp_rx)
+        new_ry = ak.Array(temp_ry)
+        new_rz = ak.Array(temp_rz)
+    else:
+        new_rx = ak.Array([[subarr + randn(n) * transverse_part]
                        for subarr, n in zip(rx, num_elements)])
-    new_ry = ak.Array([[subarr + randn(n) * transverse_part]
+        new_ry = ak.Array([[subarr + randn(n) * transverse_part]
                        for subarr, n in zip(ry, num_elements)])
-    new_rz = ak.Array([[subarr + randn(n) * longitudinal_part]
+        new_rz = ak.Array([[subarr + randn(n) * longitudinal_part]
                        for subarr, n in zip(rz, num_elements)])
 
     # Concatenating the arrays along the new axis

@@ -78,6 +78,8 @@ def calculate_geomega_geometry_v1(params):
         + params.anode_planes['thickness']
         + params.cells['height']
         + params.cathode_plane['thickness'] / 2
+        + params.shield['thickness']/2
+        + params.calorimeter['thickness']/2
         )
 
     #   Generate cell array, either for hexagonal or rectangular cells.
@@ -270,6 +272,9 @@ def calculate_geomega_geometry_v1(params):
     # Outer ACD cylinder
     # outer_act_thickness = params.acd["thickness"]
     outer_act_thickness = 0.02
+    calAndShield =( 0* params.calorimeter["thickness"] 
+                +  params.shield["thickness"] 
+                )
     lines.append('// Outer ACD cylinder\n')
     lines.append('Volume OuterACD\n')
     lines.append('OuterACD.Material Argon\n')
@@ -279,12 +284,12 @@ def calculate_geomega_geometry_v1(params):
         + ' '
         + f'{(vessel_r_inner + outer_act_thickness)*100:10.7f}'  # Outer radius (inner + thickness)
         + ' '
-        + f'{(params.vessel["height"]/2)*100:10.7f} '
+        + f'{(params.vessel["height"]/2 + calAndShield/2)*100:10.7f} '
         + '0. '
         + '360.'
         + '\n'
     )
-    lines.append(f'OuterACD.Position 0.0 0.0 {(params.vessel["height"]/2)*100:10.7f}\n')
+    lines.append(f'OuterACD.Position 0.0 0.0 {(params.vessel["height"]/2 - calAndShield)*100:10.7f}\n')
     lines.append('OuterACD.Color 15\n')
     lines.append('OuterACD.Mother WorldVolume\n\n')
 
@@ -406,14 +411,19 @@ def calculate_geomega_geometry_v1(params):
 
     lines.append('\n')
 
+    shield_z = - ( params.calorimeter["thickness"] 
+                   +  params.shield["thickness"] 
+                   )
     lines.append('BaseACDLayer.Copy Bottom_ACD\n')
+
     lines.append(
         'Bottom_ACD.Position  0.0 0.0 '
-        + f'{params.z_centers["back_acd"]*100:10.7f}'
+        + f'{(params.z_centers["back_acd"] + shield_z) *100:10.7f}'
         + '\n'
         )
     lines.append('Bottom_ACD.Rotation  0. 0. 0.\n')
-    lines.append('Bottom_ACD.Mother    AllArgon\n')
+    lines.append('Bottom_ACD.Material Argon\n')
+    lines.append('Bottom_ACD.Mother   WorldVolume\n')
 
     if params.calorimeter['thickness'] != 0.0:
         lines.append('/////////////////////////////////////////\n')
@@ -431,8 +441,8 @@ def calculate_geomega_geometry_v1(params):
 
         lines.append(
             'BaseCalorimeter.Shape BOX '
-            + f'{((vessel_r_inner*100) / (2 ** 0.3)):10.7f} '
-            + f'{((vessel_r_inner*100) / (2 ** 0.3)):10.7f} '
+            + f'{((vessel_r_inner*100) / (2 ** 0.27)):10.7f} '
+            + f'{((vessel_r_inner*100) / (2 ** 0.27)):10.7f} '
             + f'{params.calorimeter["thickness"]/2*100:10.7f} '
             #+ '0. '
             #+ '360.'

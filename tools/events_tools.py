@@ -218,11 +218,11 @@ class Events:
         return np.any(overlaps)
    
 
-    def write_evta_file(self, paths, evta_version='200'):
+    def write_evta_file(self, paths, bad_events=[], evta_version='200'):
         """ Writes events structure into evta file """
 
         import file_tools
-        file_tools.write_evta_file(self, paths, evta_version)
+        file_tools.write_evta_file(self, paths, bad_events, evta_version)
         return True
 
     def calculate_order(self,
@@ -593,7 +593,7 @@ def trim_events(events, num_trimmed_events):
 
     import numpy as np
 
-    mask = np.zeros(events.truth['num_hits'].shape, dtype=bool)
+    mask = np.zeros(len(events.truth['num_hits']), dtype=bool)
     if num_trimmed_events > len(mask):
         print('ERROR: num trimmed events exceeds number of events')
         return

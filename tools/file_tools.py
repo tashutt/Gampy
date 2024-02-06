@@ -231,7 +231,7 @@ class Sim_File:
 
         raw_event['ia'] = ia
 
-        #   Check of no IA line after the first - have seen this is .sim files
+        #   Check of no IA line after the first - have seen this in .sim files
         if len(ia['interaction_id'])==1:
             self.good_event = False
             print(f'Event {event_info["triggered_event_id"]:d} bad: ' +
@@ -439,6 +439,10 @@ class Sim_File:
         incident_s[1] = self.raw_event['ia']['s_secondary_y'][0]
         incident_s[2] = self.raw_event['ia']['s_secondary_z'][0]
 
+        decay_list = self.raw_event['ia']['interaction_type'] == 11 # decay
+        inert_material_list = self.raw_event['ia']['detector'] == 0
+        decay_in_inert_material = np.any(decay_list & inert_material_list)
+
         #   The deposited energy, as reported by Cosima
         deposited_energy = self.raw_event['event_info']['deposited_energy']
 
@@ -530,11 +534,29 @@ class Sim_File:
         #   We don't insist on active material, as the track can enter
         #   an active region.
         #   This is not where we distinguish cells and detector regions
+
+        # interaction_types_str2num['INIT'] = 1
+        # interaction_types_str2num['PAIR'] = 2
+        # interaction_types_str2num['COMP'] = 3
+        # interaction_types_str2num['PHOT'] = 4
+        # interaction_types_str2num['BREM'] = 5
+        # interaction_types_str2num['ANNI'] = 6
+        # interaction_types_str2num['RAYL'] = 7
+        # interaction_types_str2num['IONI'] = 8
+        # interaction_types_str2num['INEL'] = 9
+        # interaction_types_str2num['CAPT'] = 10
+        # interaction_types_str2num['DECA'] = 11
+        # interaction_types_str2num['ESCP'] = 12
+        # interaction_types_str2num['ENTR'] = 13
+        # interaction_types_str2num['EXIT'] = 14
+        # interaction_types_str2num['BLAK'] = 15
+
         interaction_mask = (
             ((types == 1) & incident_charged_particle)
             | (types == 2)
             | (types == 3)
             | (types == 4)
+            #| (types == 11) # Bahrudin added
             )
 
         #   These are energy and cell(s) of each interaction
@@ -1073,12 +1095,13 @@ class Sim_File:
         #   Final checks on energy.
         if abs(
                 total_energy
-                - (energies.sum() + front_acd_energy + back_acd_energy)
+                - (energies.sum() + front_acd_energy + back_acd_energy + calorimeter_energy)
                 ) > 1e-3:
             energy_difference =  abs(total_energy
-                - (energies.sum() + front_acd_energy + back_acd_energy))
-            print(f'Error, event {event_num:d}: energy non-conservation of '
-                  + f'{energy_difference:5.3f} keV')
+                - (energies.sum() + front_acd_energy + back_acd_energy + calorimeter_energy))
+            if total_energy > 10:
+                print(f'Warning, event {event_num:d}: energy non-conservation of '
+                    + f'{energy_difference:5.2f} keV with initial energy {total_energy:5.2f}' )
         # if abs(deposited_energy - total_energy) / deposited_energy > 1e-4:
         #      sys.exit('Error: active energy not HT sum, event '
         #               + str(event_num))
@@ -1107,6 +1130,7 @@ class Sim_File:
         parsed_event['escaped_back_energy'] = escaped_back_energy
         parsed_event['escaped_through_energy'] = escaped_through_energy
         parsed_event['num_cells'] = num_cells
+        parsed_event["decay_in_inert_material"] = decay_in_inert_material
 
         #   Arrays of per hit information
         parsed_event['energy'] = energies
@@ -1600,7 +1624,9 @@ def read_events_from_sim_file(full_file_name,
                 'num_hits':
                 len(sim_file.parsed_event['energy']),
                 'num_cells':
-                sim_file.parsed_event['num_cells']
+                sim_file.parsed_event['num_cells'],
+                'decay_in_inert_material':
+                sim_file.parsed_event["decay_in_inert_material"],
             }
 
             truth_hits_event = {
@@ -1718,11 +1744,24 @@ def read_events_file(full_file_stub):
 
 
 
+def is_max_80_percent_larger_than_total(list_values):
+    if len(list_values) > 3:
+        return False
+    if len(list_values) == 1:
+        return False
+    # Find the largest value
+    max_value = max(list_values)
+    total_sum = sum(list_values)
+
+    # Check if the largest is at least 80% of the sum
+    if max_value >= 0.8 * total_sum:
+        if min(list_values) < 20:
+            return True
 
 
 
 
-def write_evta_file(events, paths, version='200'):
+def write_evta_file(events, paths, bad_events, version='200'):
     """
     Writes events in events['measured_hits'] to an .evta file
     # bad implementation: fix the position/energy uncertainty
@@ -1750,21 +1789,34 @@ def write_evta_file(events, paths, version='200'):
         #   IN response_tools
 
         #   Start with convenient varibles
-        sigmaxy = 0.3/1000
-        sigmaz  = 0.3/1000
+        sigmaxy = 0.1/1000
+        sigmaz  = 0.1/1000
+        calorimeter_xy = 0
+        calorimeter_z = -5
         
         # replace all events.measured_hits['energy'] with mh
         mh = events.measured_hits
+        truth_mask = mh['_good_mask']
         acd_pass = ~mh['ACD_activated']
         cal_pass = ~mh['calorimeter_activated']
+        decay_in_inert_material = events.truth['decay_in_inert_material'][truth_mask]
 
-        sigma_energy = np.sqrt((0.015*mh['energy'])**2 + 4**2)
+        sigma_energy = np.sqrt((0.015*mh['energy'])**2 + 2**2)
+        print("\n\n\n BAD EVENTS: ", bad_events, "\n\n\n")
 
         for ne in range(len(mh['energy'])):
-            if acd_pass[ne] and cal_pass[ne]:
-                truth_mask = mh['_good_mask']
+            ID = events.truth["triggered_id"][truth_mask][ne]
+            if int(ID) in bad_events:
+                print("Bad event, skipping")
+                #continue
+
+            if acd_pass[ne] and cal_pass[ne] and not decay_in_inert_material[ne]:
+                if is_max_80_percent_larger_than_total(mh['energy'][ne]):
+                    print("*** Warning in write_evta_file: One hit dominates ***",mh['energy'][ne])
+                    pass
+
                 f.write('SE\n')
-                f.write(f'ID {events.truth["triggered_id"][truth_mask][ne]:1.0f}\n')
+                f.write(f'ID {ID :1.0f}\n')
                 f.write(f'TI {events.measured_hits["time"][ne]:2.9f}\n')
 
                 num_hits = ak.num(mh['energy'])
@@ -1784,6 +1836,19 @@ def write_evta_file(events, paths, version='200'):
                         + f'{sigmaz*100:10.7f}; '
                         + f'{sigma_energy[ne,nh]:10.7f}\n'
                         )
+                    
+                cal_ene = mh["calorimeter_energy"][ne]
+                if cal_ene > 30:
+                    f.write(f'HT 2;'
+                            + f'{calorimeter_xy:10.7f};'
+                            + f'{calorimeter_xy:10.7f};'
+                            + f'{calorimeter_z:10.7f};'
+                            + f'{cal_ene:10.7f}'
+                            + f'{98:10.7f}; '
+                            + f'{98:10.7f}; '
+                            + f'{15:10.7f}; '
+                            + f'{4*cal_ene/100 + 3:10.7f}\n'
+                            )
 
 
 def fix_sim_file_ht_lines(full_sim_file_name_in,
