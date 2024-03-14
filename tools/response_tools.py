@@ -168,7 +168,10 @@ def apply_detector_response(events):
     #   Charge signal
     measured_hits['quanta_q'] = copy.copy(quanta_q)
     measured_hits['r'] = smear_space(events.truth_hits['r'], events.params, events.truth_hits['energy'])
-    
+    measured_hits['a'] = smear_angle(events.truth_hits['s_secondary'], 
+                                     measured_hits['r'],
+                                     measured_hits['energy'])
+
     #   Save trigger information - in truth hits, since this is
     #   effectively truth data that is not known as a measurement
     events.truth_hits['triggered_q'] = triggered_q
@@ -176,58 +179,55 @@ def apply_detector_response(events):
     events.truth_hits['triggered'] = triggered
     
     #   alive and cell info copied from measured_hits.
-    measured_hits['cell'] = copy.copy(events.truth_hits['cell'])
-    measured_hits['cell_index'] = copy.copy(events.truth_hits['cell_index'])
-    
-    from tools import geometry_tools
-    #   Generate locations in cell coordinates
-    if events.meta['geo_params'].detector_geometry=='geomega':
-        measured_hits['r_cell'] = geometry_tools.global_to_cell_coordinates(
-            measured_hits['r'],
-            measured_hits['cell'],
-            events.meta['geo_params'],
-            )
-        
+    measured_hits['cell'] = copy.copy(events.truth_hits['cell'][triggered])
+    measured_hits['cell_index'] = copy.copy(events.truth_hits['cell_index'][triggered])
+            
     #   Measured light from ACD
     measured_acd_energy = events.truth['front_acd_energy'] + events.truth['back_acd_energy'] \
         + events.params.light['spe_noise'] \
             * ak.Array(randn(len(events.truth['front_acd_energy'])) )
 
-    acd_activated = measured_acd_energy > events.params.light['spe_threshold']
+    acd_activated = measured_acd_energy > 4*events.params.light['spe_threshold']
 
-
-    #  measure calorimenter stuff
-    CALORIMETER_ACTIVATION_ENERGY = 15_000 # keV, a guess
 
     measured_calorimeter_energy = calculate_measured_calorimeter_energy(events.truth['calorimeter_energy'],
                                                                         events.params)
+    cal_activated = measured_calorimeter_energy > 4*events.params.light['spe_threshold']
+    measured_hits['calorimeter_energy'] = np.where(cal_activated,
+                                                   measured_calorimeter_energy,
+                                                   0)
     
-    measured_hits['calorimeter_energy'] = np.where(measured_calorimeter_energy < 0, 0, measured_calorimeter_energy)
-    calorimeter_activated = measured_calorimeter_energy > CALORIMETER_ACTIVATION_ENERGY
-
-    #   Time of events is directly from truth.  Probably should add an error
-    #   here based on light readout timing
-    measured_hits['time'] = events.truth['time']
+    good_mask  = ak.num(triggered) > 0
+    good_maskT = good_mask & triggered
+    r_mask     = ak.concatenate([triggered[:,np.newaxis],]*3,axis=1)  
+    measured_hits['energy'] = measured_hits['energy'][good_maskT]
+    measured_hits['r']      = measured_hits['r'][r_mask][good_mask]
+    measured_hits['s_secondary'] = measured_hits['a'][r_mask][good_mask]
     
-    good_mask = ak.num(triggered) > 0   
-    measured_hits['energy'] = measured_hits['energy'][good_mask]
-    measured_hits['r']      = measured_hits['r'][good_mask]
-    measured_hits['r_cell'] = measured_hits['r_cell'][good_mask]
     measured_hits['time']   = events.truth['time'][good_mask]
     measured_hits['triggered_id'] = events.truth['triggered_id'][good_mask]
     measured_hits['cell']   = measured_hits['cell'][good_mask]
-    measured_hits['quanta_q']     = measured_hits['quanta_q'][good_mask]
+    measured_hits['quanta_q']     = measured_hits['quanta_q'][good_maskT]
     measured_hits['total_energy'] = measured_hits['total_energy'][good_mask]
     measured_hits['cell_index']   = measured_hits['cell_index'][good_mask]
     measured_hits['triggered']    = events.truth_hits['triggered'][good_mask]
     measured_hits['ACD_activated'] = acd_activated[good_mask]
     measured_hits['calorimeter_energy'] = measured_hits['calorimeter_energy'][good_mask]
-    measured_hits['calorimeter_activated'] = calorimeter_activated[good_mask]
     
     measured_hits['_good_mask']   = good_mask
     measured_hits['_bad_mask']    = ~good_mask
 
+    from tools import geometry_tools
+    if events.meta['geo_params'].detector_geometry=='geomega':
+        measured_hits['r_cell'] = geometry_tools.global_to_cell_coordinates(
+            measured_hits['r'],
+            measured_hits['cell'],
+            events.meta['geo_params'],
+            )[good_mask]
+        measured_hits['r_cell'] = measured_hits['r_cell']
+
     events.measured_hits = measured_hits
+
     return events
 
     return events
@@ -384,6 +384,8 @@ def smear_space(r, params, energy=[]):
                          (sigma['longitudinal'] *
                           params.charge_drift['diffusion_fraction'])**2)**0.5
     
+    def rndm(rand_len,std=1):
+        return np.random.normal(0,std,size=rand_len)
 
     ENERGY = [50,300,300,750,1000]
     Rrms   = [0.02*1e-3, 
@@ -398,39 +400,90 @@ def smear_space(r, params, energy=[]):
         c = -1e-5
 
         rrms = a * energy**2 + b * energy + c
-        return ak.max(rrms, params.spatial_resolution['sigma_xy'])
+        return np.array(rrms) 
 
     rx, ry, rz = r[:, 0], r[:, 1], r[:, 2]
-    num_elements = ak.num(rx)
+    toShape = ak.num(rx)
+    rand_len = len(np.ravel(rx))
 
     # if there is 'spatial_resolution_multiplier' in params.spatial_resolution then set SRM to that value otherwise set it to 1
     SRM = params.spatial_resolution.get('spatial_resolution_multiplier', 1)
 
     if len(energy) > 0:
-        temp_rx, temp_ry, temp_rz = [], [], []
-        for i, n in enumerate(num_elements):
-            if n > 0:
-                temp_qf = rrms_quadratic_fit(energy[i]) * SRM
-                temp_rx.append([rx[i] + randn(n) * temp_qf])
-                temp_ry.append([ry[i] + randn(n) * temp_qf])
-                temp_rz.append([rz[i] + randn(n) * temp_qf])
-            else:
-                temp_rx.append([rx[i]])
-                temp_ry.append([ry[i]])
-                temp_rz.append([rz[i]])
-        new_rx = ak.Array(temp_rx)
-        new_ry = ak.Array(temp_ry)
-        new_rz = ak.Array(temp_rz)
+        temp_qf = rrms_quadratic_fit(ak.flatten(energy)) * SRM
+
+        new_rx = rx +  ak.unflatten(list(rndm(rand_len)*temp_qf),
+                                    toShape, axis=0)
+        new_ry = ry +  ak.unflatten(list(rndm(rand_len)*temp_qf),
+                            toShape, axis=0)
+        new_rz = rz +  ak.unflatten(list(rndm(rand_len)*temp_qf),
+                            toShape, axis=0)
+        
     else:
-        new_rx = ak.Array([[subarr + randn(n) * transverse_part]
-                       for subarr, n in zip(rx, num_elements)])
-        new_ry = ak.Array([[subarr + randn(n) * transverse_part]
-                       for subarr, n in zip(ry, num_elements)])
-        new_rz = ak.Array([[subarr + randn(n) * longitudinal_part]
-                       for subarr, n in zip(rz, num_elements)])
+        new_rx = rx +  ak.unflatten(rndm(rand_len,transverse_part),
+                                    toShape, axis=0)
+        new_ry = ry +  ak.unflatten(rndm(rand_len,transverse_part),
+                            toShape, axis=0)
+        new_rz = rz +  ak.unflatten(rndm(rand_len,longitudinal_part),
+                            toShape, axis=0)
 
     # Concatenating the arrays along the new axis
-    combined_array = ak.concatenate([new_rx, new_ry, new_rz], axis=1)
+    combined_array = ak.concatenate([new_rx[:,np.newaxis],
+                                     new_ry[:,np.newaxis], 
+                                     new_rz[:,np.newaxis]], axis=1)
 
     return combined_array
-    
+
+def smear_angle(s, Z=[],E=[]):
+    """
+    Smears the angle of the hit
+    """
+    from numpy.random import randn
+    import numpy as np
+    import awkward as ak
+
+    toShape = ak.num(s[:,0])
+    rand_len = len(np.ravel(s[:,0]))
+    # std of 0.01 gives 0.4 degrees for 1 sigma
+
+    # hardcoding the z value for now
+    if len(Z) != 0:
+        z = ak.ravel(Z[:,2])
+        up   = z > 0.36 / 2
+        down = z < 0.36 / 2
+        z_cell = np.zeros(len(z))
+        z_cell[up] = 0.36 - z[up]
+        z_cell[down] = z[down]
+
+        e = ak.ravel(E)
+
+        STD = np.ones(len(z)) * 0.08
+        # for energies less than 500, assign full uncertainty
+        STD[e < 500] = 2.5 
+        STD[e > 300] = 0.7*z[e > 300]/0.17
+        STD[e > 500] = 0.2*z[e > 500]/0.17  
+
+
+    else:
+        # all the recoil errors are 3 degrees
+        STD = 0.08
+
+    def rndm(rand_len,std=STD):
+        return list(np.random.exponential(1,size=rand_len)*std)
+
+    sx = s[:,0] + ak.unflatten(rndm(rand_len),toShape, axis=0)
+    sy = s[:,1] + ak.unflatten(rndm(rand_len),toShape, axis=0)
+    sz = s[:,2] + ak.unflatten(rndm(rand_len),toShape, axis=0)
+
+    normal = (sx**2 + sy**2 + sz**2)**0.5
+    sx = sx / normal
+    sy = sy / normal
+    sz = sz / normal
+
+    sn = ak.concatenate([sx[:,np.newaxis],
+                        sy[:,np.newaxis],
+                        sz[:,np.newaxis]],axis=1)
+
+    return sn
+
+
