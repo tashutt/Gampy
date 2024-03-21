@@ -60,11 +60,13 @@ def calculate_compton_angle(E_incoming, E_outgoing):
     cos_theta = 1 - m_e_c2*(1/E_outgoing - 1/E_incoming) 
     return np.arccos(cos_theta)
 
+def surplus_cal_comparison(sur, cal, calorimeter_tolerance=0.1):
+    return (sur > cal*(1-calorimeter_tolerance)) & (sur < cal*(1+calorimeter_tolerance))
 
 
 def reconstruct(events, 
-                IN_VECTOR = [0,0,-1], 
-                LEN_OF_CKD_HITS = [3,4,5,6,7], 
+                LEN_OF_CKD_HITS,
+                IN_VECTOR = None, 
                 use_truth_hits=False, 
                 outside_mask=None, 
                 MIN_ENERGY=0.1,
@@ -81,6 +83,7 @@ def reconstruct(events,
                          + events_to_reconstruct['calorimeter_energy']) > MIN_ENERGY)  
 
     data = {}
+    CKD_DEPTH = 2
     for hit_len in LEN_OF_CKD_HITS:
         data[hit_len] = {}
         hit_len_mask = ak.num(events_to_reconstruct['energy']) == hit_len
@@ -91,12 +94,13 @@ def reconstruct(events,
 
         hit_len_prime = hit_len
         PERMUTATIONS = list(permutations(range(hit_len)))
-        if hit_len > 6:
-            hit_len_prime = 6
+        if hit_len > CKD_DEPTH + 2:
+            hit_len_prime = CKD_DEPTH + 3
             PERMUTATIONS = list(permutations(range(hit_len),
                                             hit_len_prime))
             
-        e_out_error  = np.zeros((len(energies), len(PERMUTATIONS)))
+        e_out_error        = np.zeros((len(energies), len(PERMUTATIONS)))
+        e_out_error_prime  = np.zeros((len(energies), len(PERMUTATIONS)))
         total_energy = (np.sum(energies, axis=1) 
                         + calorimeter_energy)
 
@@ -113,8 +117,36 @@ def reconstruct(events,
                 kn = klein_nishina(E_in, np.arccos(geometric_cosine))
 
                 eouterr = eout_scatter_error(E_in, E_ou, geometric_cosine)
-                e_out_error[:,p] += np.array(eouterr) - 100*np.array(np.log(kn))
+                e_out_error[:,p] += np.array(eouterr) - np.array(np.log(kn))
+                
+                # calculate the expected energy and make inferences about
+                # the order of the hits (calorimeter first?)
+                if i==0:
+                    e2 = energies[:,permutation[1]]
+                    e3 = e_3_formula(e2, geometric_cosine)
+                    e_surplus = e3 + e2 + energies[:,permutation[0]] - total_energy
+                    iem = (e_surplus > 0) & (e_surplus < 0.3*total_energy)
+                    # check if the surplus is close to the calorimeter energy
+                    sec = surplus_cal_comparison(-e_surplus, calorimeter_energy, 0.05)
+                
+                if hit_len > 4: # here I suscpect that some hits are lost
+                    eouterr_prime = eout_scatter_error(E_in[iem] + e_surplus[iem], 
+                                                    E_ou[iem] + e_surplus[iem], 
+                                                            geometric_cosine[iem])
+                    e_out_error_prime[:,p][iem] += np.array(eouterr_prime)
 
+                # Here I suspect that calorimeter came in first or second
+                eouterr_second = eout_scatter_error(E_in[sec] - calorimeter_energy[sec], 
+                                                    E_ou[sec] - calorimeter_energy[sec], 
+                                                        geometric_cosine[sec]) 
+                                                        
+                
+                e_out_error_prime[:,p][sec] += np.array(eouterr_second)
+        
+        #fix the zeros
+        e_out_error_prime[e_out_error_prime==0] = 1e12
+        prime_better = e_out_error > e_out_error_prime
+        e_out_error[prime_better] = e_out_error_prime[prime_better]
 
         best_e_out_order = np.argmin(e_out_error, axis=1)
         best_e_out       = np.min(e_out_error, axis=1)**0.5 
@@ -162,14 +194,12 @@ def reconstruct(events,
 
             theta = calculate_compton_angle(total_energy[u_mask], E_in)
             first_hit_compton[u_mask] = theta
-   
+            first_hit_dot_ang[u_mask] = np.arccos(geometric_cos(r1_r2, 
+                                                                np.array([IN_VECTOR])))
             R1R2 = events.truth_hits.s_primary[hit_len_mask&outside_mask][u_mask][:,:,permutation[0]] 
             truth_angle12[u_mask] = np.arccos(geometric_cos(r1_r2, R1R2))*180/np.pi
-
-            if IN_VECTOR is not None:
-                first_hit_dot_ang[u_mask] = np.arccos(geometric_cos(r1_r2, 
-                                                      np.array([IN_VECTOR])))
                 
+        first3_good = np.array(PERMUTATIONS)[best_e_out_order,:3]==[0,1,2]
 
         data[hit_len]['min_hit_distance']  = min_distances
         data[hit_len]['kn_probability']    = klein_nishina_sums
@@ -177,24 +207,31 @@ def reconstruct(events,
         data[hit_len]['num_of_hits']       = hit_len*np.ones(len(best_e_out_order))
         data[hit_len]['first_scatter_angle'] = first_hit_compton
 
-        if IN_VECTOR is not None:
-            data[hit_len]['ARM'] = (first_hit_compton - first_hit_dot_ang) * 180/np.pi
+        data[hit_len]['ARM'] = (first_hit_compton - first_hit_dot_ang) * 180/np.pi
 
-        data[hit_len]['truth_lost_in_passive'] = events.truth.passive_energy[hit_len_mask&outside_mask] > 2
-        data[hit_len]['truth_escaped_energy']  = events.truth.escaped_energy[hit_len_mask&outside_mask] > 2
-        data[hit_len]['truth_correct_order']   = best_e_out_order == 0
+        data[hit_len]['truth_lost_in_passive'] = events.truth.passive_energy[hit_len_mask&outside_mask] > 15
+        data[hit_len]['truth_escaped_energy']  = events.truth.escaped_energy[hit_len_mask&outside_mask] > 15
+        data[hit_len]['truth_correct_order']   = first3_good.all(axis=1)
         data[hit_len]['truth_angle12']         = truth_angle12
+        data[hit_len]['truth_calorimeter_first3'] = events.truth.calorimeter_in_first_3[hit_len_mask&outside_mask]
 
-        print(hit_len, 'hit len:', end='')
-        lco = data[hit_len]['best_e_out_order']
-        correct_percentage = sum(lco == 0) * 100 / len(lco)
-        print(f" Correct {correct_percentage:.2f} %")
+        this = data[hit_len]
+        bad_events = (this['truth_escaped_energy'] 
+                    | this['truth_calorimeter_first3'])
+        
+        correct_order = this['truth_correct_order']
+
+        print(f"-> {hit_len} hits:",end=' | ')
+        #print percentage of good events
+        print(f"Good events: {100*sum(~bad_events)/len(bad_events):.2f} %", end=' | ')
+        print(f"Correct order: {100*sum(correct_order)/len(correct_order):.2f} %")
+
 
     dfs = [pd.DataFrame(data[k]) for k in sorted(data.keys())]
     df = pd.concat(dfs, axis=0, ignore_index=True)
 
     if len(filename) > 0:
-        df.to_pickle(f'{filename}.pkl')
+        df.to_pickle(f'{filename}_reconstructed.pkl')
 
     return df
     
@@ -213,11 +250,12 @@ def train_classifier(df, filename='classifier.pkl', plot_confusion_matrix=True):
             'first_scatter_angle',
             ]]
 
-    y = df[['truth_escaped_energy', 'truth_correct_order']]
+    y = df[['truth_escaped_energy', 'truth_correct_order', 'truth_calorimeter_first3']]
 
     y_new = y.copy()
-    y_new['good'] = ((y['truth_escaped_energy'] == False) 
-                   & (y['truth_correct_order']  == True)).astype(int)
+    y_new['good'] = ((y['truth_escaped_energy'] == False) # no escaped energy
+                   & (y['truth_correct_order']  == True) # good order
+                   & (y['truth_calorimeter_first3'] == False)).astype(int) # no calorimeter in first 3
     y = y_new[['good']]
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15)
@@ -244,6 +282,8 @@ def train_classifier(df, filename='classifier.pkl', plot_confusion_matrix=True):
         y_pred_all = clf.predict(X)
         conf_matrix = confusion_matrix(y, y_pred_all)
 
+        plt.cla()
+        plt.clf()
         plt.figure(figsize=(6, 4))
         sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", cbar=False)
         plt.title("Confusion Matrix")

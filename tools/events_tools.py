@@ -240,7 +240,7 @@ class Events:
 
     def reconstruct_events(self,
                         IN_VECTOR = None,
-                        LEN_OF_CKD_HITS = [3,4,5,6,7], 
+                        LEN_OF_CKD_HITS = [3,4,5,6,7,8], 
                         use_truth_hits=False,
                         save_name=""):
         """ 
@@ -249,9 +249,9 @@ class Events:
         """
         import reconstruction_tools
 
-        db = reconstruction_tools.reconstruct(self, 
-                                            IN_VECTOR, 
+        db = reconstruction_tools.reconstruct(self,  
                                             LEN_OF_CKD_HITS, 
+                                            IN_VECTOR,
                                             use_truth_hits, 
                                             outside_mask=None, 
                                             MIN_ENERGY=0.1,
@@ -259,7 +259,7 @@ class Events:
         
         self.reconstructed_data = db
 
-    def train_classifier_on_self(self):
+    def train_classifier_on_self(self, database=None):
         """
         Trains a classifier on the reconstructed data
         Trainings should be done on more than one set of events
@@ -267,24 +267,30 @@ class Events:
         so it's cheating if it's used on itself [kind of]
         """
         import reconstruction_tools
-        clf = reconstruction_tools.train_classifier(self.reconstructed_data,
-                                                    filename='classifier.pkl', 
-                                                    plot_confusion_matrix=True) 
+
+        if database is None:
+            clf = reconstruction_tools.train_classifier(self.reconstructed_data,
+                                                        filename='classifier.pkl', 
+                                                        plot_confusion_matrix=True) 
+        else:
+            clf = reconstruction_tools.train_classifier(database,
+                                                        filename='a_major_classifier.pkl', 
+                                                        plot_confusion_matrix=True)
         self.classifier = clf   
         
 
-    def classify_events(self):
+    def classify_reconstructed_events(self,save_name=None,load_classifier=None):
         import joblib
         from scipy.optimize import curve_fit
         import matplotlib.pyplot as plt
         import numpy as np
 
-        try:
-            classifier = joblib.load('classifier.pkl')
-        except:
-            print('Classifier not found in working directory. Train a classifier first.')
-            classifier = self.clf
-            
+        if load_classifier is None:
+            print('Trying to use self-clasiffier. Bad practice')
+            classifier = self.classifier
+        else:
+            classifier = joblib.load(load_classifier)
+        
         features = ['e_out_CKD', 'min_hit_distance', 'kn_probability', 
                     'calculated_energy', 'num_of_hits', 'first_scatter_angle']
 
@@ -292,6 +298,7 @@ class Events:
         X = df[features]
         df['use'] = classifier.predict(X)
 
+        ### fitting the ARM histogram ##########
         def lorentzian(x, x0, gamma, A):
             return A * (gamma**2 / ((x - x0)**2 + gamma**2))
 
@@ -301,7 +308,7 @@ class Events:
 
         popt, _ = curve_fit(lorentzian, x, y, p0=[0, 1, max(y)])
 
-        
+        plt.clf()
         plt.hist(df.query("use==1").ARM, bins=50, range=(-10,10), alpha=0.6, label='ARM histogram')
         plt.xlabel('ARM [degrees]')
         plt.ylabel('Counts')
@@ -310,12 +317,15 @@ class Events:
         plt.plot(x, lorentzian(x, *popt), label='Lorentzian fit', color='red')
 
         fwhm = 2 * popt[1]
-        plt.annotate(f'FWHM = {fwhm:.2f} degrees', xy=(0, 0.9), 
+        plt.annotate(f'FWHM = {fwhm:.2f} degrees', xy=(0.1, 0.89), 
                     xycoords='axes fraction', fontsize=14)
 
         plt.legend()
+        if save_name is not None:
+            plt.savefig(f'{save_name}_ARM_histogram.png')
         plt.show()
         print(f"FWHM from fit: {fwhm:.2f}")
+        ########################################
         
         self.reconstructed_data = df
 
@@ -568,4 +578,5 @@ def trim_events(events, num_trimmed_events):
     events.meta['num_events'] = num_trimmed_events
 
     return events
+
 
