@@ -6,8 +6,9 @@ import os, glob
 # Constants
 GEOFILE = 'GammaTPC_GeoT01v04_optimistic.geo.setup'
 ONE_BEAM = 'FarFieldPointSource'
-LOG_E = [2.2, 2.5,2.7,3,3.2,3.5,3.7,4]#,4.2] #,3.7,4,4.2,4.5,4.7]#,5,5.2,5.5,5.7,6,6.2,6.5,6.7]
+LOG_E = [2.2, 2.5,2.7,3,3.2,3.5,3.7,4]#,4.2] #,3.7,4,4.2,4.5,4.7]
 ANGLES = [0, 25.8, 36.9]  #, 45.6, 53.1, 60]
+num_of_triggers = 10000
 
 # Utility Functions
 def ang2cos(allAng):
@@ -17,7 +18,7 @@ def logE2ene(allEne):
     return [int(10**ee) for ee in allEne]
 
 # Main Script Logic
-def generate_cosima_files():
+def generate_cosima_files_and_run_analysis():
     energies = logE2ene(LOG_E)
     cos_ang = ang2cos(ANGLES)
 
@@ -36,8 +37,8 @@ def generate_cosima_files():
 
 
 def generate_source_file_content(geofile, oneBeam, myene, cosTh, ang):
-    return f"""# An example run for Cosima
-# This was created with the python wrapper --> create_source_file.py <--
+    return f"""# A run for Cosima
+# This was created with the python wrapper --> sensitivity_study.py <--
 
 Version          1
 Geometry         {geofile} 
@@ -52,7 +53,7 @@ PreTriggerMode                 everyeventwithhits
 
 Run FFPS
 FFPS.FileName              {oneBeam}_{myene / 1000.:.3f}MeV_Cos{cosTh:.1f}
-FFPS.NTriggers             100000
+FFPS.NTriggers             {num_of_triggers}
 
 FFPS.Source One
 One.ParticleType        1
@@ -93,7 +94,7 @@ def delete_specific_files(delete_sim=False):
             os.remove(filename)
 
 
-generate_cosima_files()
+generate_cosima_files_and_run_analysis()
 
 
-# delete_specific_files(delete_sim=False)
+delete_specific_files(delete_sim=True)
