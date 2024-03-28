@@ -388,19 +388,19 @@ def smear_space(r, params, energy=[]):
         return np.random.normal(0,std,size=rand_len)
 
     ENERGY = [50,300,300,750,1000]
-    Rrms   = [0.02*1e-3, 
-              0.09*1e-3, 
-              0.05*1e-3,                            
-              0.17*1e-3, 
-              0.08*1e-3]
+    Rrms   = [0.01*1e-3, 
+              0.3*1e-3, 
+              0.32*1e-3,                            
+              0.42*1e-3, 
+              0.6*1e-3]
 
     def rrms_quadratic_fit(energy):
-        a = -3.47527666e-10
-        b = 4.64690829e-07
-        c = -1e-5
-
-        rrms = a * energy**2 + b * energy + c
-        return np.array(rrms) 
+        a0, a1, a2 = 1.12295665e-06, 1.02477612e-06, -4.67093106e-10
+        energy = np.asarray(energy)
+        
+        rrms = np.where(energy > 1200, 
+                        0.6e-3, a0 + a1 * energy + a2 * energy**2)
+        return rrms
 
     rx, ry, rz = r[:, 0], r[:, 1], r[:, 2]
     toShape = ak.num(rx)
