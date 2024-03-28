@@ -7,7 +7,7 @@ import os, glob
 GEOFILE = 'GammaTPC_GeoT01v04_optimistic.geo.setup'
 ONE_BEAM = 'FarFieldPointSource'
 LOG_E = [2.2, 2.5,2.7,3,3.2,3.5,3.7,4]#,4.2] #,3.7,4,4.2,4.5,4.7]#,5,5.2,5.5,5.7,6,6.2,6.5,6.7]
-ANGLES = [0]#, 25.8, 36.9]  #, 45.6, 53.1, 60]
+ANGLES = [0, 25.8, 36.9]  #, 45.6, 53.1, 60]
 
 # Utility Functions
 def ang2cos(allAng):
@@ -21,13 +21,19 @@ def generate_cosima_files():
     energies = logE2ene(LOG_E)
     cos_ang = ang2cos(ANGLES)
 
-    with open("./runCosima.sh", mode='w') as f:
-        for myene in energies:
-            for cosTh, ang in zip(cos_ang, ANGLES):
-                source_file = f'{ONE_BEAM}_{myene / 1000.:.3f}MeV_Cos{cosTh:.1f}.source'
-                content = generate_source_file_content(GEOFILE, ONE_BEAM, myene, cosTh, ang)
-                write_to_file(source_file, content)
+    for myene in energies:
+        for cosTh, ang in zip(cos_ang, ANGLES):
+            source_file = f'{ONE_BEAM}_{myene / 1000.:.3f}MeV_Cos{cosTh:.1f}.source'
+            content = generate_source_file_content(GEOFILE, ONE_BEAM, myene, cosTh, ang)
+            write_to_file(source_file, content)
+            name_of_job = f"runCosima_{source_file}.sh"
+
+            with open(name_of_job, mode='w') as f:
                 write_run_command(f, ONE_BEAM, myene, cosTh)
+            print(f"Running {name_of_job}")
+            subprocess.run(["sbatch",name_of_job])
+            os.remove(name_of_job)
+
 
 def generate_source_file_content(geofile, oneBeam, myene, cosTh, ang):
     return f"""# An example run for Cosima
@@ -61,45 +67,17 @@ def write_to_file(filename, content):
 
 def write_run_command(file, oneBeam, myene, cosTh):
     runCode = f'{oneBeam}_{myene / 1000.:.3f}MeV_Cos{cosTh:.1f}'
-    file.write(f'cosima -v 0 -s 120 {runCode}.source\n')
-#bsub -R "centos7" -o a_out.txt -W 6000 
-# Execute Shell Script
-def execute_shell_script():
-    # Append shebang line
-    prepend_to_file("./runCosima.sh", "#!/bin/bash\n")
-    # Append closing line
-    append_to_file("./runCosima.sh", "\necho \"All simulations have been submitted.\"\n")
-    # Make script executable and run
-    subprocess.run(['chmod', '+x', './runCosima.sh'])
-    print("Running runCosima.sh")
-    subprocess.run(['./runCosima.sh'])
+    pre = f"""#!/bin/bash
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=1:00:00
 
-def prepend_to_file(filename, line):
-    with open(filename, 'r+') as file:
-        content = file.read()
-        file.seek(0, 0)
-        file.write(line + content)
+cosima -s 120 {runCode}.source
+python gamma_TPC_complete.py {runCode}.inc1.id1.sim"""
+    file.write(pre)
 
-def append_to_file(filename, line):
-    with open(filename, 'a') as file:
-        file.write(line)
 
-def check_jobs_periodically(dt=5):
-    import time
-    time.sleep(2)
-
-    while True:
-        result = subprocess.run(['bjobs'], capture_output=True, text=True)
-        print(result.stdout)
-        if len(result.stdout) < 25:
-            time.sleep(2)
-            if len(subprocess.run(['bjobs'], capture_output=True, text=True).stdout) < 25:
-                print("All jobs are done.")
-                break
-        else:
-            print(f"Jobs are still running... {int(dt/5)**2 *5} s")
-            time.sleep(dt)
-            dt += 5  
 
 
 def delete_specific_files(delete_sim=False):
@@ -114,29 +92,8 @@ def delete_specific_files(delete_sim=False):
         for filename in glob.glob(pattern):
             os.remove(filename)
 
-def run_sim_file_analysis():
-    bash_script_name = 'submit_detector_response_jobs.sh'
-    bash_script_content = '#!/bin/bash\n\n# This script submits jobs for all .sim files\n\n'
 
-    # Generate the command for each .sim file
-    for sim_file in glob.glob('*.sim'):
-        #bash_script_content += f'bsub -R centos7 -W 6000 python gamma_TPC_complete.py {sim_file}\n'
-        bash_script_content += f'python gamma_TPC_complete.py {sim_file}&\n'
-
-    bash_script_content += "wait\n"
-    bash_script_content += 'echo "All jobs submitted."\n'
-    with open(bash_script_name, 'w') as bash_script:
-        bash_script.write(bash_script_content)
-
-    os.chmod(bash_script_name, 0o755)
-    subprocess.run(['./' + bash_script_name])
+generate_cosima_files()
 
 
-
-#generate_cosima_files()
-#execute_shell_script()
-#check_jobs_periodically()
-
-run_sim_file_analysis()
-#check_jobs_periodically()
 # delete_specific_files(delete_sim=False)
