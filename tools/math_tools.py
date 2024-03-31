@@ -14,7 +14,7 @@ def rotate_ray(input_ray, rotation_target):
     import numpy as np
 
     #   These used in calculation.  Following standard notation,
-    #   a rotates into b.  Here a is (0,0,1) and b is rotation_target
+    #   a rotates into b.  Here a is (0,0,1) and b is rotation_target.
     #   k is axis of rotation
     if input_ray.ndim > 1:
         a = np.tile(np.array([[0], [0], [1]]), len(input_ray[0, :]))
@@ -27,17 +27,18 @@ def rotate_ray(input_ray, rotation_target):
         if input_ray.size>3:
             b = np.tile(b, len(input_ray[0, :]))
 
+    a_cross_b = np.cross(a.transpose(), b.transpose()).transpose()
+    a_cross_b_dot = va_dot(a_cross_b, a_cross_b)
+
+    cos_theta = va_dot(a, b)
+    #   TODO: why sqrt here, and not on cos_theta?
+    sin_theta = np.sqrt(a_cross_b_dot)
+
     #   Can't rotate these: have normal aligned with [0 0 1], hence
     #   cross product is zero.
     straight_up = np.abs(b[2, :] - 1) < 1e-7
     straight_down = np.abs(b[2, :] + 1) < 1e-7
     can_rotate = ~(straight_up | straight_down)
-
-    a_cross_b = np.cross(a.transpose(), b.transpose()).transpose()
-    a_cross_b_dot = va_dot(a_cross_b, a_cross_b)
-
-    cos_theta = va_dot(a, b)
-    sin_theta = np.sqrt(a_cross_b_dot)
 
     k = np.zeros_like(a_cross_b)
     k[:, can_rotate] = a_cross_b[:, can_rotate] / sin_theta[can_rotate]

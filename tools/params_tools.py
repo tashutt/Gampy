@@ -42,7 +42,6 @@ def default_geomega_inputs(cell_geometry='rectangular'):
 
     inputs['acd'] = {'thickness': 0.007}
 
-    #changes by Sam to include params for shield and calorimenter
     inputs['calorimeter'] = {}
     inputs['calorimeter']['thickness'] = 0.0
 

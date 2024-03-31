@@ -4,6 +4,9 @@ Created on Mon Aug  3 19:22:53 2020
 Collection of tools for the class Track which describes an electron track,
 and related functions.
 
+TODO: Rationalize what is here, and what is in penelope_tools
+TODO: Use .h5py for files, and save in only one format
+
 @author: tshutt
 """
 
@@ -96,8 +99,12 @@ class Track:
             self.raw_track['r'] = r_out
             self.raw_track['num_e'] = num_e_out
 
-            #   Generation no longer valid
+            #   Several "meta" things are no longer valid
+            self.raw_track.pop('particle', None)
             self.raw_track.pop('generation', None)
+            self.raw_track.pop('parent', None)
+            self.raw_track.pop('interaction', None)
+            self.raw_track.pop('birth_step', None)
 
             #   Save compression size in meta data
             self.meta['compression_bin_size'] = compression_bin_size
@@ -121,6 +128,9 @@ class Track:
         import sys
 
         import charge_drift_tools
+
+        #   Recalculate params
+        self.params.calculate()
 
         drift_properties = charge_drift_tools.properties(
             self.params.charge_drift['drift_field'],
@@ -300,15 +310,19 @@ class Track:
     def display(
             self,
             raw_track=True,
-            pixels=True,
             drifted_track=False,
-            projections=False,
-            max_sample=None,
+            pixels=True,
+            resolution=1e-5,
+            max_num_e=None,
+            max_pixel_samples=None,
             plot_lims=None,
-            initial_vector=True,
+            show_initial_vector=True,
+            show_origin=True,
             track_center_at_origin=False,
             units='mm',
-            view_angles=None
+            view_angles=None,
+            no_axes=False,
+            show_title=True,
             ):
         """
         Displays track - see help in display_tools.
@@ -318,15 +332,19 @@ class Track:
         fig, ax, plot_lims = display_tools.display(
                 self,
                 raw_track=raw_track,
-                pixels=pixels,
                 drifted_track=drifted_track,
-                projections=projections,
-                max_sample=max_sample,
+                pixels=pixels,
+                resolution=resolution,
+                max_num_e=max_num_e,
+                max_pixel_samples=max_pixel_samples,
                 plot_lims=plot_lims,
-                initial_vector=initial_vector,
+                show_initial_vector=show_initial_vector,
+                show_origin=show_origin,
                 track_center_at_origin=track_center_at_origin,
                 units=units,
-                view_angles=view_angles
+                view_angles=view_angles,
+                no_axes=no_axes,
+                show_title=show_title,
                 )
 
         return fig, ax, plot_lims
@@ -335,9 +353,12 @@ def save_track(full_file_name, track):
     """
     Saves track to npz and pickle files with full_file_name
 
+    Track could be penelope file, or perhaps an already parsed track which
+    has been compressed, losing attributes.  This is all a bit ugly.
     If track is dictionary it is treated as a penelope_track, otherwise
     treated as normal track object.
-    TODO: this is a bit of a mess - why is this not a method of track?
+    TODO: save/read "raw" penelope tracks in normal format, with raw_track
+    TODO: make method of track?
     """
 
     import pickle
@@ -349,7 +370,11 @@ def save_track(full_file_name, track):
         r = track['r']
         num_e = track['num_e']
         if 'generation' in track:
+            particle = track['particle']
             generation = track['generation']
+            parent = track['parent']
+            interaction = track['interaction']
+            birth_step = track['birth_step']
         truth = track['truth']
         meta = track['meta']
 
@@ -358,7 +383,11 @@ def save_track(full_file_name, track):
         r = track.raw_track['r']
         num_e = track.raw_track['num_e']
         if 'generation' in track.raw_track:
+            particle = track.raw_track['particle']
             generation = track.raw_track['generation']
+            parent = track.raw_track['parent']
+            interaction = track.raw_track['interaction']
+            birth_step = track.raw_track['birth_step']
         truth = track.truth
         meta = track.meta
 
@@ -368,7 +397,11 @@ def save_track(full_file_name, track):
             os.path.join(full_file_name + '.npz'),
             r = r,
             num_e = num_e,
+            particle = particle,
             generation = generation,
+            parent = parent,
+            interaction = interaction,
+            birth_step = birth_step,
             )
     else:
         np.savez_compressed(
@@ -392,6 +425,7 @@ def load_track(full_file_name):
     """
     Loads .npz + .pickel track in full_file_name
 
+    TODO: save/read "raw" penelope tracks in normal format, with raw_track
     11/5/21 TS
     """
 
@@ -410,6 +444,11 @@ def load_track(full_file_name):
     raw_track['num_e'] = track_guts['num_e']
     if 'generation' in track_guts:
         raw_track['generation'] = track_guts['generation']
+    if 'particle' in track_guts:
+        raw_track['particle'] = track_guts['particle']
+        raw_track['parent'] = track_guts['parent']
+        raw_track['interaction'] = track_guts['interaction']
+        raw_track['birth_step'] = track_guts['birth_step']
 
     truth = track_info['truth']
     #   Backwards compatability
@@ -427,42 +466,33 @@ def load_track(full_file_name):
 
 def find_bounding_box(r, buffer=0.01):
     """
-    Finds box that spans r, with buffer
+    Finds box that spans r, with an added buffer
     """
 
     import numpy as np
-
-    buffer_min = 1e-6
-
-    if buffer<buffer_min:
-        print('Warning - increased bounding box buffer')
-        buffer=buffer_min
 
     #   First set equal to extremes of r
     bounding_box = np.zeros((3,2))
     bounding_box[:, 0] = r.min(axis=1)
     bounding_box[:, 1] = r.max(axis=1)
 
-    #   Buffer added to span around mean
-    bounding_box = bounding_box.mean(axis=1)[:, None] \
-        +  (np.diff(bounding_box) + buffer) \
-            * 0.5 * np.array([-1. , 1.])
+    #   Add buffer
+    bounding_box[:, 0] -= buffer
+    bounding_box[:, 1] += buffer
 
     return bounding_box
 
 def find_bounding_cube(r, buffer=0.01):
     """
-    Finds cube that spans r, with a minimum buffer.
+    Finds cube that spans r, with an added buffer.
     """
 
-    import numpy as np
-
     #   Start with bounding box.
-    bounding_box = find_bounding_box(r, buffer=buffer)
+    bounding_cube = find_bounding_box(r, buffer=buffer)
 
-    #   Now make all spans equal to largest
-    bounding_cube = bounding_box.mean(axis=1)[:, None] \
-        +  0.5 * np.diff(bounding_box).max() * np.array([-1., 1.])
+    #   Add buffer
+    bounding_cube[:, 0] -= buffer
+    bounding_cube[:, 1] += buffer
 
     return bounding_cube
 
@@ -600,11 +630,7 @@ def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
 
     return r_out, num_e_out
 
-
-# def decompress_track(max_electrons_per_bin, num_electrons, *args):
-
-
-def decompress_track(max_electrons_per_bin, num_electrons, args):
+def decompress_track(max_electrons_per_bin, num_electrons, *args):
     """
     Take in sample_data (shape k,n with n the number of samples
     and k the number of datatypes, e.g. r, trackID, pID) and n_electrons

@@ -15,7 +15,6 @@ def simple_penelope_track_maker(p,
                         random_initial_direction=True,
                         reset_origin=True,
                         wipe_folders=False,
-                        all_charges=False,
                         fresh_seed=True,
                         compression_bin_size=None
                         ):
@@ -59,11 +58,11 @@ def simple_penelope_track_maker(p,
     #   parsed python files and removed until this batch is completed.
     max_num_tracks_batch = 50
 
-    #   Material and params to give recombination.  This is really not
+    #   Material and params to give recombination.  This should beis really not
     #   handled well - material shoul be in params
     material = 'LAr'
     import params_tools
-    params = params_tools.Params()
+    params = params_tools.ResponseParams()
 
     #   Prep and check folders
     if not os.path.isdir(p['output']):
@@ -73,6 +72,10 @@ def simple_penelope_track_maker(p,
         print('*** Error: No executable folder ***')
         exit()
 
+    #   Particle, if missign.  1=electron, 2=photon, 3=positron
+    if not 'particles' in steering:
+        steering['particles'] = np.ones(steering.energies.size, dtype=int)
+
     #%%  Simulate - loop through steering['energies']
 
     for ne in range(steering['energies'].size):
@@ -80,17 +83,29 @@ def simple_penelope_track_maker(p,
         print('Working on ' + str(steering['energies'][ne]) + ' keV, ' \
               + str(steering['num_tracks'][ne]) + ' tracks')
 
-        #   Output folder for each steering['energies'].  if folder
-        #   exists, remove any files in it.  Otherwise create folder
+        #   Output folders.  Top level is particle, then energy.
+        #   Create as needed, adn can wipe.
+
+        particle = steering['particles'][ne]
         etag = f'E{steering["energies"][ne]:07.0f}'
-        p_out = os.path.join(p['output'], etag)
-        if os.path.isdir(p_out):
-            os.chdir(p_out)
+
+        if particle==1:
+            p1 = os.path.join(p['output'], 'electrons')
+        if particle==2:
+            p1 = os.path.join(p['output'], 'photons')
+        if particle==3:
+            p1 = os.path.join(p['output'], 'positrons')
+        if not os.path.isdir(p1):
+            os.mkdir(p1)
+
+        p2 = os.path.join(p1, etag)
+        if os.path.isdir(p2):
+            os.chdir(p2)
             if wipe_folders:
                 for f in glob.glob("*"):
                     os.remove(f)
         else:
-            os.mkdir(p_out)
+            os.mkdir(p2)
 
         #   These control looping over calls to penelope
         num_full_bunches = np.fix(
@@ -109,17 +124,13 @@ def simple_penelope_track_maker(p,
             'cp '
             + os.path.join(p['executable'], 'pentracks')
             + ' '
-            + os.path.join(p['output'], etag, 'pentracks')
+            + os.path.join(p2, 'pentracks')
             )
         os.system(
             'cp '
             + os.path.join(p['executable'], material + '.mat')
             + ' '
-            + os.path.join(
-                p['output'],
-                etag,
-                material + '.mat'
-                )
+            + os.path.join(p2, material + '.mat')
             )
 
         #   Loop over bunches
@@ -138,18 +149,19 @@ def simple_penelope_track_maker(p,
             #   energies and number of tracks
             penelope_in_image = pentracks_in_file_image(
                 steering['energies'][ne],
+                steering['particles'][ne],
                 num_penelope_tracks,
                 fresh_seed
                 )
             with open(
-                    os.path.join(p['output'], etag, 'pentracks.in'),
+                    os.path.join(p2, 'pentracks.in'),
                     'w'
                     ) as file:
                 for line in penelope_in_image:
                     file.write(line + '\n')
 
             #   Run penelope
-            os.chdir(p_out)
+            os.chdir(p2)
             os.system('./pentracks < pentracks.in')
 
             print('   Parsing PENELOPE output to python tracks')
@@ -159,7 +171,7 @@ def simple_penelope_track_maker(p,
 
             #   These are data files to process
             full_file_name_list \
-                = glob.glob(os.path.join(p_out, 'TrackE*.dat'))
+                = glob.glob(os.path.join(p2, 'TrackE*.dat'))
 
             for full_file_name, nf in zip(
                     full_file_name_list,
@@ -168,12 +180,11 @@ def simple_penelope_track_maker(p,
 
                 #   Parse file
                 track = parse_penelope_file(
-                    p_out,
+                    p2,
                     full_file_name,
                     params,
                     random_initial_direction=random_initial_direction,
                     reset_origin=reset_origin,
-                    all_charges=all_charges,
                     compression_bin_size=compression_bin_size
                     )
 
@@ -185,7 +196,7 @@ def simple_penelope_track_maker(p,
                     + datetime.now().strftime('D%Y%m%d_T%H%M%f')
                     )
                 electron_track_tools.save_track(
-                    os.path.join(p_out, out_file_name),
+                    os.path.join(p2, out_file_name),
                     track
                     )
 
@@ -202,7 +213,6 @@ def parse_penelope_file(
         params,
         random_initial_direction=True,
         reset_origin=True,
-        all_charges=False,
         compression_bin_size=200e-6
         ):
     """
@@ -269,9 +279,11 @@ def parse_penelope_file(
     #      Penelope eV, cm.
     #      Output: keV, m.
     #   Fortran format:
-    #   WRITE(28,'(5i3,i9,i3,1p,6e15.7)')
-    #   1 NPARTICLE,KPAR,ILB(1),ILB(2),ILB(3),ILB(4),ICOL,E,DE,DS,X,Y,Z
+    #   WRITE(28,'(i7,4i3,i9,2i3,6e15.7)')
+    #  1  NPARTICLE,KPAR,ILB(1),ILB(2),ILB(3),ILB(4),ICOL,
+    #  1  IABS,E,DE,DS,X,Y,Z
 
+    #   For electrons:
     #   icol = 1:  soft_event
     #   icol = 2:  hard_elastic
     #   icol = 3:  hard_inelastic
@@ -298,8 +310,10 @@ def parse_penelope_file(
         # * (1 - params.materials['recombination'])
 
     #   Now Derive things
-    penelope_data['num_particles'] = max(penelope_data['particle_id'])
+    penelope_data['id'] = max(penelope_data['particle_id'])
     penelope_data['generation'] = penelope_data['ilb'][:, 0]
+    penelope_data['parent'] = penelope_data['ilb'][:, 1]
+    penelope_data['interaction'] = penelope_data['ilb'][:, 2]
     penelope_data['birth_step'] \
         = np.diff(np.insert(penelope_data['particle_id'], 0, 0)) > 0
 
@@ -318,37 +332,9 @@ def parse_penelope_file(
     deposits_mask = num_e>0
     num_e = num_e[deposits_mask]
 
-    #   Number of charges at each site is num_e from abvoe
-    if not all_charges:
-        r = penelope_data['r'][:, deposits_mask]
-        generation = penelope_data['generation'][deposits_mask]
 
-    #   If instead creating an entry for each electron.
-    #   Messy indexing to deal with creating mulitple
-    #   electrons at each energy deposition point
-    elif all_charges:
-
-        r = np.zeros((3, np.sum(num_e)), dtype=float)
-        generation = np.zeros(np.sum(num_e))
-
-        ni = 0
-        for nd in range(len(deposits_mask)):
-            r[0, ni:(ni + num_e[nd])] \
-                = penelope_data['r'][0, deposits_mask[nd]]
-            r[1, ni:(ni + num_e[nd])] \
-                = penelope_data['r'][1, deposits_mask[nd]]
-            r[2, ni:(ni + num_e[nd])] \
-                = penelope_data['r'][2, deposits_mask[nd]]
-            ni += num_e[nd]
-
-        ni = 0
-        for nd in range(len(deposits_mask)):
-            generation[ni:(ni + num_e[nd])] \
-                = penelope_data['generation'][deposits_mask[nd]]
-            ni += num_e[nd]
-
-        #   Reassign num_e
-        num_e = np.ones_like(generation, dtype=int)
+    #   Number of charges at each site is num_e from above
+    r = penelope_data['r'][:, deposits_mask]
 
     #   Origin and initial diretion are from Penelope input
     origin = penelope_input['r_o'] / 100
@@ -386,7 +372,11 @@ def parse_penelope_file(
 
     track['r'] = r
     track['num_e'] = num_e
-    track['generation'] = generation
+    track['particle'] = penelope_data['kpar'][deposits_mask]
+    track['generation'] = penelope_data['generation'][deposits_mask]
+    track['parent'] = penelope_data['parent'][deposits_mask]
+    track['interaction'] = penelope_data['interaction'][deposits_mask]
+    track['birth_step'] = penelope_data['birth_step'][deposits_mask]
 
     track['truth'] = {}
 
@@ -405,7 +395,71 @@ def parse_penelope_file(
 
     return track
 
-def pentracks_in_file_image(energy, num_tracks, fresh_seed=True):
+def parse_penelope_in(p):
+    """ Reads pentracks.in file in folder p; returns penelope_input """
+
+    import numpy as np
+    import os
+
+    #   Read and parse 'pentracks.in', the PENELOPE steering file
+    with open(os.path.join(p, 'pentracks.in')) as file:
+        lines = file.readlines()
+    penelope_input = {}
+    penelope_input['raw_lines'] = [line.rstrip() for line in lines]
+
+    #   Save a few important parameters from penelope.in
+    for line in penelope_input['raw_lines']:
+
+        #   Settings start with names of up to six characters in length
+        if line[0:6].count(' ') < 6:
+
+            name = line[0:6].replace(' ', '')
+            values_string = line[7:].split(r'[')[0].split()
+
+            #   These are saved
+
+            if name == 'MSIMPA':
+                values = np.array(
+                    [float(value_string)for value_string in values_string])
+                penelope_input['eabs'] = values[0:3]
+                penelope_input['c1'] = values[3]
+                penelope_input['c2'] = values[4]
+                penelope_input['wcc'] = values[5]
+                penelope_input['wcr'] = values[6]
+
+            if name == 'SENERG':
+                penelope_input['electron_energy'] \
+                    = float(values_string[0]) / 1000
+
+            if name == 'SPOSIT':
+                values = np.array(
+                    [float(value_string)for value_string in values_string])
+                penelope_input['r_o'] = values
+
+            if name == 'SCONE':
+                values = np.array(
+                    [float(value_string)for value_string in values_string])
+                theta = values[0]
+                phi = values[1]
+                alpha = values[2]
+
+                s_o = np.zeros(3)
+                if alpha==0:
+                    s_o[0] = np.cos(phi) * np.sin(theta)
+                    s_o[1] = np.cos(phi) * np.sin(theta)
+                    s_o[2] = np.cos(theta)
+                else:
+                    print('Warning: initial direction not known')
+
+                penelope_input['s_o'] = s_o
+
+    return penelope_input
+
+def pentracks_in_file_image(energy,
+                            particle=1,
+                            num_tracks=1000,
+                            fresh_seed=True
+                            ):
     """ return pentrack.in file as image, for energy and num_tracks """
 
     import numpy as np
@@ -465,6 +519,12 @@ def pentracks_in_file_image(energy, num_tracks, fresh_seed=True):
 
     nl = 0
     for line in penelope_in:
+
+        #   Primary particle
+        if line[0:6].strip()=='SKPAR':
+            penelope_in[nl] = (
+                f'SKPAR  {particle:d}'
+                ).ljust(line.find('[')) + line[line.find('['):]
 
         #   Track energy
         if line[0:6].strip()=='SENERG':
@@ -611,64 +671,3 @@ def default_pentracks_in_file():
         )
 
     return base_file
-
-def parse_penelope_in(p):
-    """ Reads pentracks.in file in folder p; returns penelope_input """
-
-    import numpy as np
-    import os
-
-    #   Read and parse 'pentracks.in', the PENELOPE steering file
-    with open(os.path.join(p, 'pentracks.in')) as file:
-        lines = file.readlines()
-    penelope_input = {}
-    penelope_input['raw_lines'] = [line.rstrip() for line in lines]
-
-    #   Save a few important parameters from penelope.in
-    for line in penelope_input['raw_lines']:
-
-        #   Settings start with names of up to six characters in length
-        if line[0:6].count(' ') < 6:
-
-            name = line[0:6].replace(' ', '')
-            values_string = line[7:].split(r'[')[0].split()
-
-            #   These are saved
-
-            if name == 'MSIMPA':
-                values = np.array(
-                    [float(value_string)for value_string in values_string])
-                penelope_input['eabs'] = values[0:3]
-                penelope_input['c1'] = values[3]
-                penelope_input['c2'] = values[4]
-                penelope_input['wcc'] = values[5]
-                penelope_input['wcr'] = values[6]
-
-            if name == 'SENERG':
-                penelope_input['electron_energy'] \
-                    = float(values_string[0]) / 1000
-
-            if name == 'SPOSIT':
-                values = np.array(
-                    [float(value_string)for value_string in values_string])
-                penelope_input['r_o'] = values
-
-            if name == 'SCONE':
-                values = np.array(
-                    [float(value_string)for value_string in values_string])
-                theta = values[0]
-                phi = values[1]
-                alpha = values[2]
-
-                s_o = np.zeros(3)
-                if alpha==0:
-                    s_o[0] = np.cos(phi) * np.sin(theta)
-                    s_o[1] = np.cos(phi) * np.sin(theta)
-                    s_o[2] = np.cos(theta)
-                else:
-                    print('Warning: initial direction not known')
-
-                penelope_input['s_o'] = s_o
-
-    return penelope_input
-
