@@ -230,7 +230,6 @@ def apply_detector_response(events):
 
     return events
 
-    return events
 
 ### HELPER FUNCTIONS
 def replace_negative_elements(a):
@@ -435,6 +434,7 @@ def smear_space(r, params, energy=[]):
     return combined_array
 
 
+
 # angle estimation
 def deviation(energy, drift):
     import numpy as np
@@ -455,12 +455,12 @@ def deviation(energy, drift):
     dk_denergy = -44/700
     dk_dz_dE   = -1e2
     a = np.where(energy<300,
-                0,
+                np.nan,
                 (energy-300) * (dk_denergy 
                                 + dk_dz_dE*(0.05-drift)/(energy-290)))
-    return np.where(a>0, -1e-4, a)
+    return np.where(a>0, np.nan, a)
 
-def angle_error(energy, drift, n=1):
+def angle_error(energy, drift):
     import numpy as np
     from scipy.stats import expon
     """
@@ -470,8 +470,10 @@ def angle_error(energy, drift, n=1):
     for electron recoil direction based on data from m.buuck et.al paper
     """
     k = deviation(energy, drift)
-    lambd = -k
-    return expon.rvs(scale=1/lambd, size=n)
+    lambd = -np.array(k)
+    res = np.zeros(len(k))
+    res[k<0] = expon.rvs(scale=1/lambd[k<0])
+    return res
 
 def angle_error_uncertainty(energy, drift):
     import numpy as np
@@ -510,10 +512,8 @@ def smear_angle(s, Z=[],E=[]):
     z_cell[up] = 0.36 - z[up]
     z_cell[down] = z[down]
 
-    LEN = np.ones(len(z))
-    STD = angle_error(e, z_cell, n=LEN) / 1.73
-
-    sign = np.random.choice([1, -1], LEN)
+    STD = angle_error(e, z_cell) / 1.73
+    sign = np.random.choice([1, -1], rand_len)
 
     sx = s[:,0] + ak.unflatten(STD*sign, toShape, axis=0)
     sy = s[:,1] + ak.unflatten(STD*sign, toShape, axis=0)
@@ -529,8 +529,7 @@ def smear_angle(s, Z=[],E=[]):
                          sz[:,np.newaxis]],
                          axis=1
                        )
-
+    
     return sn
-
 
 
