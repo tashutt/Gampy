@@ -434,6 +434,61 @@ def smear_space(r, params, energy=[]):
 
     return combined_array
 
+
+# angle estimation
+def deviation(energy, drift):
+    import numpy as np
+    """
+    given energy (keV) 
+    and drift length (m)
+    returns the exponential coefficient k
+    for a normalized exponential distribution
+    of errors in angle (rad) for electron recoil 
+    direction based on data from m.buuck et.al paper
+    
+    dist = A * e**(k*theta)
+    
+    --> ret: k (1/rad) 
+    1/k is a measure of uncertanty (rad) 
+    """
+
+    dk_denergy = -44/700
+    dk_dz_dE   = -1e2
+    a = np.where(energy<300,
+                0,
+                (energy-300) * (dk_denergy 
+                                + dk_dz_dE*(0.05-drift)/(energy-290)))
+    return np.where(a>0, -1e-4, a)
+
+def angle_error(energy, drift, n=1):
+    import numpy as np
+    from scipy.stats import expon
+    """
+    given energy (keV) 
+    and drift length (m)
+    returns n random samples of errors in angle (rad) 
+    for electron recoil direction based on data from m.buuck et.al paper
+    """
+    k = deviation(energy, drift)
+    lambd = -k
+    return expon.rvs(scale=1/lambd, size=n)
+
+def angle_error_uncertainty(energy, drift):
+    import numpy as np
+    """
+    given energy (keV) 
+    and drift length (m)
+    returns the uncertainty in angle (rad) 
+    for electron recoil direction based on data from m.buuck et.al paper
+    """
+    k = deviation(energy, drift)
+    containment_level = 0.95
+    anu =  np.log(1-containment_level)/k
+    # clip between 0 and pi
+    return np.clip(anu, 0, np.pi)
+
+
+
 def smear_angle(s, Z=[],E=[]):
     """
     Smears the angle of the hit
@@ -446,34 +501,23 @@ def smear_angle(s, Z=[],E=[]):
     rand_len = len(np.ravel(s[:,0]))
     # std of 0.01 gives 0.4 degrees for 1 sigma
 
-    # hardcoding the z value for now
-    if len(Z) != 0:
-        z = ak.ravel(Z[:,2])
-        up   = z > 0.36 / 2
-        down = z < 0.36 / 2
-        z_cell = np.zeros(len(z))
-        z_cell[up] = 0.36 - z[up]
-        z_cell[down] = z[down]
+    z = ak.ravel(Z[:,2])
+    e = ak.ravel(E)
+    
+    up   = z > 0.36 / 2
+    down = z < 0.36 / 2
+    z_cell = np.zeros(len(z))
+    z_cell[up] = 0.36 - z[up]
+    z_cell[down] = z[down]
 
-        e = ak.ravel(E)
+    LEN = np.ones(len(z))
+    STD = angle_error(e, z_cell, n=LEN) / 1.73
 
-        STD = np.ones(len(z)) * 0.08
-        # for energies less than 500, assign full uncertainty
-        STD[e < 500] = 2.5 
-        STD[e > 300] = 0.7*z[e > 300]/0.17
-        STD[e > 500] = 0.2*z[e > 500]/0.17  
+    sign = np.random.choice([1, -1], LEN)
 
-
-    else:
-        # all the recoil errors are 3 degrees
-        STD = 0.08
-
-    def rndm(rand_len,std=STD):
-        return list(np.random.exponential(1,size=rand_len)*std)
-
-    sx = s[:,0] + ak.unflatten(rndm(rand_len),toShape, axis=0)
-    sy = s[:,1] + ak.unflatten(rndm(rand_len),toShape, axis=0)
-    sz = s[:,2] + ak.unflatten(rndm(rand_len),toShape, axis=0)
+    sx = s[:,0] + ak.unflatten(STD*sign, toShape, axis=0)
+    sy = s[:,1] + ak.unflatten(STD*sign, toShape, axis=0)
+    sz = s[:,2] + ak.unflatten(STD*sign, toShape, axis=0)
 
     normal = (sx**2 + sy**2 + sz**2)**0.5
     sx = sx / normal
@@ -481,9 +525,12 @@ def smear_angle(s, Z=[],E=[]):
     sz = sz / normal
 
     sn = ak.concatenate([sx[:,np.newaxis],
-                        sy[:,np.newaxis],
-                        sz[:,np.newaxis]],axis=1)
+                         sy[:,np.newaxis],
+                         sz[:,np.newaxis]],
+                         axis=1
+                       )
 
     return sn
+
 
 
