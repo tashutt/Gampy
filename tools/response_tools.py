@@ -12,6 +12,7 @@ File io: sim_file_tools
 Signficant rewrite of original Matlab routines, initial port 8/10/2020
 Major repackaging 3/21
 Rewrite to awkward arrays 9/23 BT
+full treatment of initial electron track estimation 4/24 BT
 
 @author: tshutt
 """
@@ -171,6 +172,9 @@ def apply_detector_response(events):
     measured_hits['a'] = smear_angle(events.truth_hits['s_secondary'], 
                                      measured_hits['r'],
                                      measured_hits['energy'])
+    
+    measured_hits['a_uncertainty'] = angle_error_uncertainty(measured_hits['energy'], 
+                                                             events.truth_hits['r'][:,2])
 
     #   Save trigger information - in truth hits, since this is
     #   effectively truth data that is not known as a measurement
@@ -477,17 +481,20 @@ def angle_error(energy, drift):
 
 def angle_error_uncertainty(energy, drift):
     import numpy as np
+    import awkward as ak
     """
     given energy (keV) 
     and drift length (m)
     returns the uncertainty in angle (rad) 
     for electron recoil direction based on data from m.buuck et.al paper
     """
-    k = deviation(energy, drift)
     containment_level = 0.95
+    k = deviation(energy, drift)
     anu =  np.log(1-containment_level)/k
-    # clip between 0 and pi
-    return np.clip(anu, 0, np.pi)
+    # mask anu if larger than pi or anu is nan 
+    mask = (anu > np.pi) | np.isnan(anu)
+    anu = ak.where(mask, np.pi, anu)
+    return anu
 
 
 
