@@ -34,6 +34,19 @@ def geometric_cos(v1, v2):
                     )
     return dot_product
 
+def electron_track_dir_missalignment(v1, v2, a, sigma_a):
+    """ given two vectors v1 and v2, and the angle between them 
+    a and the uncertainty of the angle sigma_a, calculate the
+    missalignment between the normalized cross product of v1 and v2
+    and the normalized vector a, divided by the uncertainty of the angle
+    """
+    cross = np.cross(v1, v2)
+    cross_norm = cross / np.linalg.norm(cross, axis=1)[:, None]
+    a_norm = a / np.linalg.norm(a, axis=1)[:, None]
+    dot = np.sum(cross_norm * a_norm, axis=1)
+    return np.abs(np.arccos(dot)) / sigma_a
+
+
 def eout_scatter_error(E_in, E_out, geometric_cos):
     m_e_c2 = 511.0 
     E_out_calc = E_in / (1 + (E_in / m_e_c2) * (1 - geometric_cos)) 
@@ -59,6 +72,27 @@ def calculate_compton_angle(E_incoming, E_outgoing):
 def surplus_cal_comparison(sur, cal, calorimeter_tolerance=0.1):
     return (sur > cal*(1-calorimeter_tolerance)) & (sur < cal*(1+calorimeter_tolerance))
 
+def compute_gamma_vector(fsv, etv, theta):
+    """
+    Computes the vector gamma from the given first scattering vector (fsv),
+    early-time vector (etv), and angle in degrees (theta_deg).
+    
+    Parameters:
+        fsv (np.array): The first scattering vector.
+        etv (np.array): The electron track vector.
+        theta (float): The Compton scattering angle.
+    
+    Returns:
+        np.array: The computed gamma vector.
+    """
+    normal_fsv = fsv / np.linalg.norm(fsv, axis=1, keepdims=True)
+    dots = np.einsum('ij,ij->i', etv, normal_fsv)
+    ortho_etv = etv - dots[:, np.newaxis] * normal_fsv
+    normal_ortho_etv = ortho_etv / np.linalg.norm(ortho_etv, axis=1, keepdims=True)
+    beta = np.tan(theta)
+    gammav = -(normal_fsv + beta * normal_ortho_etv)
+    gammav = gammav / np.linalg.norm(gammav, axis=1, keepdims=True)
+    return gammav
 
 def reconstruct(events, 
                 LEN_OF_CKD_HITS,
@@ -85,9 +119,10 @@ def reconstruct(events,
         hit_len_mask = ak.num(events_to_reconstruct['energy']) == hit_len
         energies = events_to_reconstruct['energy'][hit_len_mask&outside_mask]
         calorimeter_energy = events_to_reconstruct['calorimeter_energy'][hit_len_mask&outside_mask]
-        positions = events_to_reconstruct['r'][hit_len_mask&outside_mask]
-        #recoil = events_to_reconstruct['s_secondary'][hit_len_mask&outside_mask]
-    
+        positions  = events_to_reconstruct['r'][hit_len_mask&outside_mask]
+        recoil_vec = events_to_reconstruct['a'][hit_len_mask&outside_mask]
+        recoil_unc = events_to_reconstruct['a_uncertainty'][hit_len_mask&outside_mask]
+        
         hit_len_prime = hit_len
         PERMUTATIONS = list(permutations(range(hit_len)))
         if hit_len > CKD_DEPTH + 2:
@@ -114,9 +149,15 @@ def reconstruct(events,
                 E_ou = E_in - energies[:,permutation[i+1]]
     
                 kn = klein_nishina(E_in, np.arccos(geometric_cosine))
-    
+                angle_miss = electron_track_dir_missalignment(r1_r2, 
+                                                              r2_r3, 
+                                                              recoil_vec[:,:,permutation[i+1]], 
+                                                              recoil_unc[:,permutation[i+1]])
+
                 eouterr = eout_scatter_error(E_in, E_ou, geometric_cosine)
-                e_out_error[:,p] += np.array(eouterr) - np.array(np.log(kn))/hit_len
+                e_out_error[:,p] += (np.array(eouterr) 
+                                     - np.array(np.log(kn)) 
+                                     + np.array(angle_miss))
                 
                 # calculate the expected energy and make inferences about
                 # the order of the hits (calorimeter first?)
@@ -150,16 +191,21 @@ def reconstruct(events,
         best_e_out_order = np.argmin(e_out_error, axis=1)
         best_e_out       = np.min(e_out_error, axis=1)**0.5 
     
-        klein_nishina_sums = np.ones(len(best_e_out_order))
-        min_distances      = np.ones(len(best_e_out_order))
-        first_arm_len      = np.zeros(len(best_e_out_order))
-        calculated_energy  = np.zeros(len(best_e_out_order))
-        first_hit_compton  = np.zeros(len(best_e_out_order))
-        first_hit_comptonC = np.zeros(len(best_e_out_order))
-        first_hit_dot_ang  = np.zeros(len(best_e_out_order))
-        truth_angle12      = np.zeros(len(best_e_out_order))
-        psi_angle = np.zeros(len(best_e_out_order))
-        xsi_angle = np.zeros(len(best_e_out_order))
+        array_len = len(best_e_out_order)
+        klein_nishina_sums = np.ones(array_len)
+        delta_e_direction  = np.ones(array_len) * np.pi
+        min_distances      = np.ones(array_len)
+        first_arm_len      = np.zeros(array_len)
+        calculated_energy  = np.zeros(array_len)
+        first_hit_compton  = np.zeros(array_len)
+        first_hit_comptonC = np.zeros(array_len)
+        first_hit_dot_ang  = np.zeros(array_len)
+        truth_angle12      = np.zeros(array_len)
+        psi_angle = np.zeros(array_len)
+        xsi_angle = np.zeros(array_len)
+
+        phi_e = np.zeros(array_len)
+        psi_e = np.zeros(array_len)
     
     
         # now calculate the relevant stats given the order
@@ -170,17 +216,20 @@ def reconstruct(events,
             positions_m = positions[u_mask]
             energies_m  = energies[u_mask]
             cumulative_energies = np.cumsum(energies_m[:,list(permutation)],axis=1)
-    
-    
         
             r1_r2 = positions_m[:,:,permutation[1]] - positions_m[:,:,permutation[0]]
             r2_r3 = positions_m[:,:,permutation[2]] - positions_m[:,:,permutation[1]]
             geometric_cosine = geometric_cos(r1_r2, r2_r3)
+
+            # electron track direction analysis
             
             E_in = total_energy[u_mask] - cumulative_energies[:,0]
     
             kn = klein_nishina(E_in, np.arccos(geometric_cosine))
             klein_nishina_sums[u_mask] *= np.array(kn)
+
+            # uncertainty of the first angle 
+            delta_e_direction[u_mask] = recoil_unc[u_mask][:,permutation[0]] 
     
             e2 = energies_m[:,permutation[1]]
             e3 = e_3_formula(e2, geometric_cosine)
@@ -203,7 +252,14 @@ def reconstruct(events,
             first_hit_dot_ang[u_mask] = np.arccos(geometric_cos(r1_r2, np.array([IN_VECTOR])))
             psi_angle[u_mask] = np.arccos(geometric_cos(r1_r2, np.array([[1,0, 0]])))
             xsi_angle[u_mask] = np.arccos(geometric_cos(r1_r2, np.array([[0,0,-1]])))
-    
+
+            gammav = compute_gamma_vector(r1_r2, 
+                                          recoil_vec[u_mask][:,:,permutation[0]], 
+                                          theta)
+            
+            psi_e[u_mask] = np.arctan2(gammav[:, 1], gammav[:, 0])
+            phi_e[u_mask] = np.arccos(geometric_cos(gammav, np.array([[0,0,1]])))
+
             R1R2 = events.truth_hits.s_primary[hit_len_mask&outside_mask][u_mask][:,:,permutation[0]] 
             truth_angle12[u_mask] = np.arccos(geometric_cos(r1_r2, R1R2))*180/np.pi
                 
@@ -211,7 +267,8 @@ def reconstruct(events,
     
         data[hit_len]['best_e_out_order'] = best_e_out_order
         data[hit_len]['e_out_CKD']        = best_e_out
-        data[hit_len]['energy_from_sum']  = total_energy  
+        data[hit_len]['energy_from_sum']  = total_energy
+        data[hit_len]['mean_CKD']         = np.mean(e_out_error, axis=1)
     
         data[hit_len]['min_hit_distance']  = min_distances
         data[hit_len]['first_arm_len']     = first_arm_len
@@ -223,6 +280,11 @@ def reconstruct(events,
         data[hit_len]['compton_angle']     = first_hit_compton
         data[hit_len]['psi_angle']         = psi_angle
         data[hit_len]['xsi_angle']         = xsi_angle
+
+        data[hit_len]['phi_e']             = phi_e
+        data[hit_len]['theta_e']           = psi_e
+        data[hit_len]['delta_e_direction'] = delta_e_direction
+
     
         data[hit_len]['ARM']  = (first_hit_compton  - first_hit_dot_ang) * 180/np.pi
         data[hit_len]['ARMc'] = (first_hit_comptonC - first_hit_dot_ang) * 180/np.pi
@@ -241,8 +303,9 @@ def reconstruct(events,
     
         print(f"-> {hit_len} hits:",end=' | ')
         #print percentage of good events
-        print(f"Good events: {100*sum(~bad_events)/len(bad_events):.2f} %", end=' | ')
-        print(f"Correct order: {100*sum(correct_order)/len(correct_order):.2f} %")
+        if len(bad_events) > 0:
+            print(f"Good events: {100*sum(~bad_events)/len(bad_events):.2f} %", end=' | ')
+            print(f"Correct order: {100*sum(correct_order)/len(correct_order):.2f} %")
 
     dfs = [pd.DataFrame(data[k]) for k in sorted(data.keys())]
     df = pd.concat(dfs, axis=0, ignore_index=True)
