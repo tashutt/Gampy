@@ -12,7 +12,6 @@ File io: sim_file_tools
 Signficant rewrite of original Matlab routines, initial port 8/10/2020
 Major repackaging 3/21
 Rewrite to awkward arrays 9/23 BT
-full treatment of initial electron track estimation 4/24 BT
 
 @author: tshutt
 """
@@ -488,9 +487,9 @@ def angle_error_uncertainty(energy, drift):
     returns the uncertainty in angle (rad) 
     for electron recoil direction based on data from m.buuck et.al paper
     """
-    containment_level = 0.95
+    containment_level = 0.90
     k = deviation(energy, drift)
-    anu =  np.log(1-containment_level)/k
+    anu =  np.log(1-containment_level) / k / 1.73 
     # mask anu if larger than pi or anu is nan 
     mask = (anu > np.pi) | np.isnan(anu)
     anu = ak.where(mask, np.pi, anu)
