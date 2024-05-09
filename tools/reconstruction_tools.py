@@ -200,6 +200,7 @@ def reconstruct(events,
         first_hit_compton  = np.zeros(array_len)
         first_hit_comptonC = np.zeros(array_len)
         first_hit_dot_ang  = np.zeros(array_len)
+        beta_angle         = np.zeros(array_len)
         truth_angle12      = np.zeros(array_len)
         psi_angle = np.zeros(array_len)
         xsi_angle = np.zeros(array_len)
@@ -257,8 +258,13 @@ def reconstruct(events,
                                           recoil_vec[u_mask][:,:,permutation[0]], 
                                           theta)
             
-            psi_e[u_mask] = np.arctan2(gammav[:, 1], gammav[:, 0])
-            phi_e[u_mask] = np.arccos(geometric_cos(gammav, np.array([[0,0,1]])))
+            psi_e[u_mask] = np.arctan2(gammav[:, 1], gammav[:, 0]) # relative to coordinate system
+            phi_e[u_mask] = np.arccos(geometric_cos(gammav, np.array([[0,0,1]]))) #relative to coordinate system
+
+            # taking r1_r2 as the axis, look at the error of angle arround it, beta
+            cos_beta = geometric_cos(np.cross(r1_r2, np.array([IN_VECTOR])),
+                                     np.cross(r1_r2, gammav))
+            beta_angle[u_mask] = np.arccos(abs(cos_beta)) * 180/np.pi 
 
             R1R2 = events.truth_hits.s_primary[hit_len_mask&outside_mask][u_mask][:,:,permutation[0]] 
             truth_angle12[u_mask] = np.arccos(geometric_cos(r1_r2, R1R2))*180/np.pi
@@ -284,6 +290,7 @@ def reconstruct(events,
         data[hit_len]['phi_e']             = phi_e
         data[hit_len]['theta_e']           = psi_e
         data[hit_len]['delta_e_direction'] = delta_e_direction
+        data[hit_len]['beta_angle']        = beta_angle
 
     
         data[hit_len]['ARM']  = (first_hit_compton  - first_hit_dot_ang) * 180/np.pi
