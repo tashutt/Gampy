@@ -74,14 +74,11 @@ def simple_penelope_track_maker(p,
 
     #   Particle, if missign.  1=electron, 2=photon, 3=positron
     if not 'particles' in steering:
-        steering['particles'] = np.ones(steering.energies.size, dtype=int)
+        steering['particles'] = np.ones(steering['energies'].size, dtype=int)
 
     #%%  Simulate - loop through steering['energies']
 
     for ne in range(steering['energies'].size):
-
-        print('Working on ' + str(steering['energies'][ne]) + ' keV, ' \
-              + str(steering['num_tracks'][ne]) + ' tracks')
 
         #   Output folders.  Top level is particle, then energy.
         #   Create as needed, adn can wipe.
@@ -90,14 +87,13 @@ def simple_penelope_track_maker(p,
         etag = f'E{steering["energies"][ne]:07.0f}'
 
         if particle==1:
-            p1 = os.path.join(p['output'], 'electrons')
+            ptag = 'electrons'
         if particle==2:
-            p1 = os.path.join(p['output'], 'photons')
+            ptag = 'photons'
         if particle==3:
-            p1 = os.path.join(p['output'], 'positrons')
-        if not os.path.isdir(p1):
-            os.mkdir(p1)
+            ptag = 'positrons'
 
+        p1 = os.path.join(p['output'], ptag)
         p2 = os.path.join(p1, etag)
         if os.path.isdir(p2):
             os.chdir(p2)
@@ -106,6 +102,10 @@ def simple_penelope_track_maker(p,
                     os.remove(f)
         else:
             os.mkdir(p2)
+
+        #   Blab
+        print('Working on ' + str(steering['num_tracks'][ne])
+              + ' * ' + str(steering['energies'][ne]) + ' keV ' + ptag)
 
         #   These control looping over calls to penelope
         num_full_bunches = np.fix(

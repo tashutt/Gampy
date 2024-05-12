@@ -3,68 +3,144 @@ def rotate_ray(input_ray, rotation_target):
     Rotates input_ray by angle between [0,0,1] and rotation_target, to create
     output_ray, which is returned.
 
-    First index is space 0:2, second is ray number.
+    Either input can be a vector or array, but arrays must be same size.
+
+    Note: non-normalized vectors (or spatial direction of arryas) give
+        incorrect results
 
     Based on Rodrique's rotation formula
     (https://en.wikipedia.org/wiki/Rodrigues#27_rotation_formula)
 
     11/3/2021 TS - port of 7/15/18 matlab routine
+    4/24 TS - allow flexibility on input shapes
     """
 
     import numpy as np
+    import copy
+    import sys
 
-    #   These used in calculation.  Following standard notation,
-    #   a rotates into b.  Here a is (0,0,1) and b is rotation_target.
+    #   Check inputs, and adjust as needed.
+
+    #   Both must have a size divisible by 3
+    if (input_ray.size % 3 != 0) | (rotation_target.size % 3 != 0):
+        sys.exit('in math_tools.rotate_ray: bad inputs')
+
+    #   Each must be either a 3 vectors or an array
+    if (input_ray.size>3) & (input_ray.ndim!=2):
+        sys.exit('in math_tools.rotate_ray: bad input_ray')
+    if (rotation_target.size>3) & (rotation_target.ndim!=2):
+        sys.exit('in math_tools.rotate_ray: bad rotation_target')
+
+    #   Arrays cannot be of unequal size
+    if ((rotation_target.ndim!=2) & (input_ray.ndim!=2))\
+        & (input_ray.size!=rotation_target.size):
+        sys.exit('in math_tools.rotate_ray: bad inputs')
+
+    #   Make float if not
+    if input_ray.dtype=='int':
+        input_ray = np.array(input_ray, dtype=float)
+    if rotation_target.dtype=='int':
+        rotation_target = np.array(rotation_target, dtype=float)
+
+    #   For arrays, enforce that space axis is second
+    transposed_input = False
+    if input_ray.size>3:
+        if input_ray.shape[1]!=3:
+            input_ray = input_ray.T
+            transposed_input = True
+    if rotation_target.size>3:
+        if rotation_target.shape[1]!=3:
+            rotation_target = rotation_target.T
+
+    #   If both are vectors, some ugliness: make both array of
+    #   size (2, 3).
+    padded_input = False
+    if (input_ray.size==3) & (rotation_target.size==3):
+        input_ray = np.broadcast_to(input_ray.reshape(3), (2, 3))
+        rotation_target = np.broadcast_to(rotation_target.reshape(3), (2, 3))
+        padded_input = True
+
+    #   If one is vector and other array, broadcast vector to array
+    if (input_ray.size==3) & (rotation_target.size>3):
+        input_ray = np.broadcast_to(
+            input_ray.reshape(3),
+            (rotation_target.shape[0], 3)
+            )
+    elif (input_ray.size>3) & (rotation_target.size==3):
+        rotation_target = np.broadcast_to(
+            rotation_target.reshape(3),
+            (input_ray.shape[0], 3)
+            )
+
+    #   rotation_target must be normalized
+    if np.any(np.abs((rotation_target * rotation_target).sum(axis=1)-1.0)
+              >1e-15):
+        sys.exit('in math_tools.rotate_ray: rotation_target not normalized')
+
+    #   Following standard notation, the rotation is defined as
+    #   rotating a to b. Here a is (0,0,1) and b is rotation_target.
     #   k is axis of rotation
-    if input_ray.ndim > 1:
-        a = np.tile(np.array([[0], [0], [1]]), len(input_ray[0, :]))
+    if input_ray.size > 3:
+        a = np.broadcast_to(np.array((0., 0., 1.)), (input_ray.shape[0], 3))
     else:
-        input_ray = input_ray.reshape(3,1)
-        a = np.array([[0], [0], [1]])
+        a = np.array((0, 0, 1))
     b = rotation_target
-    if b.size==3:
-        b = b.reshape(3, 1)
-        if input_ray.size>3:
-            b = np.tile(b, len(input_ray[0, :]))
 
-    a_cross_b = np.cross(a.transpose(), b.transpose()).transpose()
-    a_cross_b_dot = va_dot(a_cross_b, a_cross_b)
+    a_cross_b = np.cross(a, b)
+    a_cross_b_dot = (a_cross_b * a_cross_b).sum(axis=1)
 
-    cos_theta = va_dot(a, b)
+    cos_theta = (a * b).sum(axis=1)
     #   TODO: why sqrt here, and not on cos_theta?
     sin_theta = np.sqrt(a_cross_b_dot)
 
     #   Can't rotate these: have normal aligned with [0 0 1], hence
     #   cross product is zero.
-    straight_up = np.abs(b[2, :] - 1) < 1e-7
-    straight_down = np.abs(b[2, :] + 1) < 1e-7
+    straight_up = np.abs(b[:, 2] - 1) < 1e-7
+    straight_down = np.abs(b[:, 2] + 1) < 1e-7
     can_rotate = ~(straight_up | straight_down)
 
     k = np.zeros_like(a_cross_b)
-    k[:, can_rotate] = a_cross_b[:, can_rotate] / sin_theta[can_rotate]
+    k[can_rotate, :] = a_cross_b[can_rotate, :] \
+        / sin_theta[can_rotate][:, None]
 
     #   Pre-assign to deal with exception.  straight_up now done
-    output_ray = input_ray
+    output_ray = copy.copy(input_ray)
 
     #   Rotate those that can
+    ncr = can_rotate.sum()
     if np.sum(can_rotate) > 0:
-        output_ray[:, can_rotate,] \
-            = input_ray[:, can_rotate,] \
-                * np.tile(cos_theta[can_rotate], (3, 1)) \
-                + np.cross(
-                    k[:, can_rotate].transpose(),
-                    input_ray[:, can_rotate].transpose()
-                    ).transpose() \
-                * np.tile(sin_theta[can_rotate], (3, 1)) \
-                + k[:, can_rotate] \
-                * np.tile(
-                    va_dot(k[:, can_rotate], input_ray[:, can_rotate]),
-                    (3, 1)) \
-                * (1 - np.tile(cos_theta[can_rotate], (3, 1)))
+        output_ray[can_rotate, :] = (
+            input_ray[can_rotate, :]
+            * np.broadcast_to(
+                cos_theta[can_rotate, None],
+                (ncr, 3)
+                )
+            + np.cross(k[can_rotate, :], input_ray[can_rotate, :])
+            * np.broadcast_to(
+                sin_theta[can_rotate][:, None],
+                (ncr, 3)
+                )
+            + k[can_rotate, :]
+            * np.broadcast_to(
+                (k[can_rotate, :] * input_ray[can_rotate, :]).sum(axis=1)
+                    [:, None],
+                (ncr, 3)
+                )
+            * np.broadcast_to(
+                (1 - cos_theta[can_rotate])[:, None],
+                (ncr, 3)
+                )
+            )
 
     #   straight_down gets z component flipped
     if np.sum(straight_down) > 0:
-        output_ray[2, straight_down] = -output_ray[2, straight_down]
+        output_ray[straight_down, 2] = -output_ray[straight_down, 2]
+
+    #   If input needed reformatting, undo.
+    if transposed_input:
+        output_ray = output_ray.T
+    if padded_input:
+        output_ray = output_ray[0, :]
 
     return output_ray
 
