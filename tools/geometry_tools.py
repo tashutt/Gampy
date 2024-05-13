@@ -125,9 +125,10 @@ def calculate_geomega_geometry_v1(params):
 
     #   Cell dimensions in x, y
     if params.cells['geometry']=='hexagonal':
-        corner_to_corner = params.cells['flat_to_flat'] * math.sqrt(3) / 2
+        params.cells['corner_to_corner'] \
+            = params.cells['flat_to_flat'] * 2 / math.sqrt(3)
         params.cells['width_xo'] = params.cells['flat_to_flat']
-        params.cells['width_yo'] = corner_to_corner
+        params.cells['width_yo'] = params.cells['corner_to_corner']
         params.cells['width_xi'] \
             = params.cells['width_xo'] \
                 - params.cells['wall_thickness'] / 2
@@ -135,7 +136,7 @@ def calculate_geomega_geometry_v1(params):
             = params.cells['width_yo'] \
                 - params.cells['wall_thickness'] * math.sqrt(3) / 2 / 2
         params.cells['rotation'] = 30.
-        params.cells['segment_length'] \
+        params.cells['wall_length'] \
             = params.cells['flat_to_flat'] / math.sqrt(3)
         params.cells['area'] \
             = 2 * math.sqrt(3) * (params.cells['flat_to_flat'] /2 )**2
@@ -150,7 +151,6 @@ def calculate_geomega_geometry_v1(params):
         params.cells['area'] = params.cells['width_xo']**2
 
     #%% Now make geomega file image
-
 
     def get_tpc_cell_line(cell_number, cell_center, cell_geometry):
         '''
@@ -271,9 +271,10 @@ def calculate_geomega_geometry_v1(params):
 
     # Outer ACD cylinder
     # outer_act_thickness = params.acd["thickness"]
+    #   TODO:  remove this kludge
     outer_act_thickness = 0.02
-    calAndShield =( 0* params.calorimeter["thickness"] 
-                +  params.shield["thickness"] 
+    calAndShield =( 0* params.calorimeter["thickness"]
+                +  params.shield["thickness"]
                 )
     lines.append('// Outer ACD cylinder\n')
     lines.append('Volume OuterACD\n')
@@ -412,8 +413,8 @@ def calculate_geomega_geometry_v1(params):
 
     lines.append('\n')
 
-    shield_z = - ( params.calorimeter["thickness"] 
-                   +  params.shield["thickness"] 
+    shield_z = - ( params.calorimeter["thickness"]
+                   +  params.shield["thickness"]
                    )
     lines.append('BaseACDLayer.Copy Bottom_ACD\n')
 
@@ -438,7 +439,7 @@ def calculate_geomega_geometry_v1(params):
         lines.append('\n')
         lines.append('Volume BaseCalorimeter\n')
         lines.append('BaseCalorimeter.Material CsI\n')
-        
+
 
         lines.append(
             'BaseCalorimeter.Shape BOX '
@@ -470,7 +471,7 @@ def calculate_geomega_geometry_v1(params):
     if params.shield['thickness'] != 0.0:
         lines.append('/////////////////////////////////////////\n')
         lines.append('////////////  Earth Sheild  /////////////\n')
-        lines.append('/////////////////////////////////////////\n')   
+        lines.append('/////////////////////////////////////////\n')
 
         lines.append('Material Lead\n')
         lines.append('Lead.Density 11.3\n')
@@ -492,10 +493,10 @@ def calculate_geomega_geometry_v1(params):
             + '360.'
             + '\n'
             )
-        shield_z = - ( params.calorimeter["thickness"] 
-                   +  params.shield["thickness"] 
+        shield_z = - ( params.calorimeter["thickness"]
+                   +  params.shield["thickness"]
                    )
-                   
+
         lines.append(f'Shield.Position 0.0 0.0 {(shield_z)*100:10.7f}\n')
         lines.append('Shield.Color 1\n')
         lines.append('Shield.Mother WorldVolume\n')
@@ -669,6 +670,8 @@ def init_simple_geometry(bounding_box):
 
     Cell is centered about x=y=0, and fully spans bounding_box, along
     with a buffer distance added to all side to e.g., cope with diffusion
+
+    #TODO: consider why box is centered on (0,0)
     """
 
     import numpy as np
@@ -716,17 +719,19 @@ def init_simple_geometry(bounding_box):
 
     return cells
 
-
 def global_to_cell_coordinates(r_in, cell, params, reverse=False):
     """
     Transforms coordinates based on cell properties and rotation.
-    
+
     Parameters:
-    - r_in (awkward Array): The input coordinates, can be of shape (N, 3), (N, M, 3), or a scalar.
-    - cell (awkward Array or scalar): Indicates which cell the coordinates belong to.
-    - params (object): An object that contains cell properties like 'centers' and 'rotation'.
+    - r_in (awkward Array): The input coordinates, can be of shape
+        (N, 3), (N, M, 3), or a scalar.
+    - cell (awkward Array or scalar): Indicates which cell the coordinates
+        belong to.
+    - params (object): An object that contains cell properties like
+        'centers' and 'rotation'.
     - reverse (bool): Whether to reverse the transformation.
-    
+
     Returns:
     - r_transformed (awkward Array): Transformed coordinates.
     """
@@ -760,7 +765,7 @@ def global_to_cell_coordinates(r_in, cell, params, reverse=False):
     # Create mask based on cell presence
     cell_mask = ak.num(cell) > 0
 
-    # Perform reverse transformation. 
+    # Perform reverse transformation.
     # Reverse: shift + rorate.
     if reverse:
         for i, val in enumerate(cell_mask):
@@ -818,7 +823,6 @@ def global_to_cell_coordinates(r_in, cell, params, reverse=False):
 
     return r_transformed
 
-
 def cell_to_tile_coordinates(
         r_in,
         tile_indices,
@@ -873,7 +877,7 @@ def find_struck_chips_hits(hits, params):
     Using r_cell in hits, finds chips that are struck for each hit,
     returns hits['chip'], the index of chips struck.
 
-    TODO[ts]: reconcile this will find_span in charge_readout_tools
+    TODO[ts]: reconcile this with find_span in charge_readout_tools
     TODO[bt]: Convert to awkward when needed
     """
 

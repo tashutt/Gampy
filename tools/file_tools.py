@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Colletion of tools to read .sim file and crate events
+
 Parsing has long list of problems / needed improvements - see comments
 
 TODO: Move any file file handling out of events_tools and to here
@@ -231,7 +233,7 @@ class Sim_File:
 
         raw_event['ia'] = ia
 
-        #   Check of no IA line after the first - have seen this in .sim files
+        #   Check for no IA line after the first - have seen this in .sim files
         if len(ia['interaction_id'])==1:
             self.good_event = False
             print(f'Event {event_info["triggered_event_id"]:d} bad: ' +
@@ -254,6 +256,7 @@ class Sim_File:
             ht['time'] = deque()
             ht['interaction_id'] = deque()
             ht['interactions_id'] = deque()
+
 
             #   Loop over HTsim lines
             n = 0
@@ -290,19 +293,17 @@ class Sim_File:
                 ht['rz'].append(float(splitline[4]))
                 ht['energy'].append(float(splitline[5]))
                 ht['time'].append(float(splitline[6]))
-#TODO: THIS NEEDS TO DEAL WITH VECTOR HERE
                 ht['interaction_id'].append(int(splitline[7]))
-                ht['interactions_id'].append(
+                ht['interactions_ids'].append(
                     np.array(splitline[7:], dtype=int))
 
                 text_line = self.f.readline().strip('\n')
                 if text_line == '':
                     break
 
-            #   Convert ht structure to numpy
-#TODO: fix this monstrosity - and see just above
+            #   Convert lists to arrays, apart from interactions_idss
             for key in ht:
-                if key!='interactions_id':
+                if key!='interactions_ids':
                     ht[key] = np.array(ht[key])
 
             #   Assign HT to sim structure, if it exists
@@ -331,7 +332,7 @@ class Sim_File:
         Parses the raw event information in self.raw_event, returning
         self.parsed_event.
 
-                The information in the .sim is split between IA lines and HT lines.
+        The information in the .sim is split between IA lines and HT lines.
         The IA lines describe the interactions, while the HT lines keep
         track of energy deposited by dE/dx "ionization".  Here we generate
         truth_hits which have the locations of interactions (from the IA
@@ -426,7 +427,7 @@ class Sim_File:
         fuss = False
         event_num = self.raw_event["event_info"]["triggered_event_id"]
 
-        #   Settings for processign - should possibly be supplied params
+        #   Settings for processing - should possibly be supplied params
         x_ray_energy_threshold = 4.0
         merged_brem_threshold = 10.0
 
@@ -468,10 +469,10 @@ class Sim_File:
         types = self.raw_event['ia']['interaction_type']
         detectors = self.raw_event['ia']['detector']
 
-        #   Types of parent needs finesse, since the first entry, which is
-        #   the init line, doesn't have a well defined parent.
-        #   So we make a variable for the parent of interactions, and
-        #   assign the first entry the value 0.
+        #   Types and detectors of parents need finesse, since the
+        #   first entry, which is the init line, doesn't have a well
+        #   defined parent.
+        #   So we make new varibles, with first entry given value 0.
         parent_types = types[parents-1]
         parent_types[0] = 0
 
@@ -536,14 +537,15 @@ class Sim_File:
         #   Find energy in cells.   This is done by looping over all
         #   interactions that created particles which deposit energy via
         #   dE/dx, and summing the energy in HT lines associated with those
-        #   inteactions.
+        #   inteactions.  This gets messy to deal with tracks depositing
+        #   energy over multiple cells.
 
         #   This restricts interactions to those that make HT energy.
         #   HT energy only comes from pair, compton, photo, and incident
         #   charged particles.
-        #   We don't insist on active material, as the track can enter
-        #   an active region.
-        #   This is not where we distinguish cells and detector regions
+        #   This mask doesn't insist on active material, as the track
+        #   can enter an active region, and does not distinguish
+        #   detector types (e.g., cells vs calorimeter)
 
         # interaction_types_str2num['INIT'] = 1
         # interaction_types_str2num['PAIR'] = 2
@@ -569,7 +571,7 @@ class Sim_File:
             #| (types == 11) # Bahrudin added
             )
 
-        #   These are energy and cell(s) of each interaction
+        #   Arrays for energies and cell(s) of each interaction
         energies = np.zeros(len(interactions), dtype=float)
         cells = np.zeros(len(interactions), dtype=int)
 
@@ -650,6 +652,8 @@ class Sim_File:
                     #   This doesn't apply to initial charge particles, which
                     #   don't have an interaction.  Possibly the natural
                     #   order of the HT lines makes this unnecessary.
+                    #   TODO: check if distance test is needed, and remove
+                    #   if not
                     if ni != 0:
                         r_int = np.zeros(3, dtype=float)
                         r_int[0] = self.raw_event['ia']['rx'][ni]
@@ -662,6 +666,12 @@ class Sim_File:
                             )**2).sum(axis=0)).argmin()])
                         split_cells[ni].remove(interaction_cell)
                         split_cells[ni].insert(0, interaction_cell)
+                        if interaction_cell == 0:
+                            print('Correct interaction split cell, '
+                                  + f'event {event_num:d}')
+                        else:
+                            print('Incorrect interaction split cell, '
+                                  + f'event {event_num:d}')
                         if fuss:
                             print('Multi cell interaction, '
                                      + 'not from first track '
@@ -687,7 +697,7 @@ class Sim_File:
         ht_cal_mask = self.raw_event['ht']['detector']==2
         for nh in np.nonzero(ht_cal_mask)[0]:
             calorimeter_energy += self.raw_event['ht']['energy'][nh]
-        
+
         #TODO: get rid of this when finished checking
         def blab_first():
             split_energy_sum = sum([energy for split in split_energies
@@ -752,8 +762,7 @@ class Sim_File:
             print(f'   total: {acd_energy:5.3f} keV')
             print(f'All energy: {all_energy:5.3f} keV')
 
-        if blab:
-            blab_first()
+        if blab: blab_first()
 
         #   We now have to sort out x-rays and low energy brem that should
         #   be merged with the parent tracks or interactions.  This is
@@ -769,12 +778,14 @@ class Sim_File:
         #       photo-absorption
         #       an incident charged particle
         #
-        #   X-rays are produced both by the intial atom of photo-absorption,
-        #       and also along charged particle tracks, which the parent
-        #       charged particle is not an "interation"
+        #   X-rays are produced both at a photo-absorption interactions,
+        #       by the photo-absorbing atom,
+        #       and also along charged particle tracks. Note that for
+        #       incident charged particles the "interaction" is 1, the
+        #       inititalization interaction.
         #
         #   Note that for Cosima the secondary gamma in compton scatters
-        #       is the same as the initial.  Hence the only daughter
+        #       is the same as the initial.  Hence the only "daughter"
         #       of compton scatterings is e-, and not a gamma.
         #
         #   With that said, the are three types of low energy gamma rays
@@ -784,16 +795,19 @@ class Sim_File:
         #       interaction.  Note, this doesn't distinguish between
         #       x-rays produced along the resulting track, or produced
         #       at the interaction site.  The energy is assigned to parent
-        #       interaction.
+        #       interaction, as long as the parent interaction was in
+        #       an active material (otherwise the X-ray remains a separate
+        #       interaction)
         #   2. x-rays which sequentially follow a photo-absorption, but
         #       are not tagged as their children - perhaps erroneously.
-        #       These must have the same parent as photo-absorption, and
-        #       that parent must be a photon (to distinguish this
+        #       These have the same parent as photo-absorption, and
+        #       that parent is a photon (to distinguish this
         #       from x-rays from charged particle tracks).
         #       Energy is added to the photo-absorption interaction.
         #   3. photo-abosorption after brem at sufficiently low energy
         #       that it should be merged with track that procuced brem.
-        #       This is the grandparent interaction of the photo-absorption.
+        #       Assign to the interaction which generated the track, i.e.,
+        #       the grandparent interaction of the photo-absorption.
         #
         #   Interaction codes:
         #       INIT = 1
@@ -806,8 +820,7 @@ class Sim_File:
         #   Child x-rays are defined as:
         #      + energy less than pre-defined threshold, but > 0
         #      + photoabsorption
-        #      + parent interaction creates tracks - pari, comp, photo, or
-        #         incident charged particle
+        #      + parent detectors is active - otherwise is orphaned x-ray
         child_x_rays = interactions[
             (0.0 < energies) & (energies < x_ray_energy_threshold)
             & (types == 4)
@@ -833,14 +846,12 @@ class Sim_File:
                         & (cells[child_x_rays-1] == cell)
                         ]-1].sum()
 
-        if blab:
-            blab_on('child x rays added')
+        if blab: blab_on('child x rays added')
 
         #   Zero the merged energy
         energies[child_x_rays-1] = 0
 
-        if blab:
-            blab_on('child x rays zeroed')
+        if blab: blab_on('child x rays zeroed')
 
         #   Following x-rays:
         #       + energy less than pre-defined threshold, but > 0
@@ -878,14 +889,12 @@ class Sim_File:
                     split_energies[nfp-1][nc] += energies[nfp-1]
             sys.exit('Following x-ray parent has split cell - check this')
 
-        if blab:
-            blab_on('following x rays added')
+        if blab: blab_on('following x rays added')
 
         #   Zero the merged energy
         energies[following_x_rays_mask] = 0
 
-        if blab:
-            blab_on('following x rays zeroed')
+        if blab: blab_on('following x rays added')
 
         #   Photo absorbed brem: low energy photobsorption from
         #   parent brem, gets added to originating track.
@@ -924,14 +933,12 @@ class Sim_File:
         #   Remove the rare case
         merged_brem_photo = merged_brem_photo[~bad]
 
-        if blab:
-            blab_on('merged brem merged')
+        if blab: blab_on('following x rays added')
 
         #   Zero the merged energy
         energies[merged_brem_photo-1] = 0
 
-        if blab:
-            blab_on('merged brem zeroed')
+        if blab: blab_on('following x rays added')
 
         #TODO: remove these checks after testing
         if energies[types==5].sum()>0:
@@ -956,10 +963,10 @@ class Sim_File:
         multi_cell_interactions_mask = multi_cell_interactions_mask[~remove]
         detectors = detectors[~remove]
 
-        if blab:
-            blab_last()
+        if blab: blab_last()
 
-        #   Locations and vectors for these interactions
+        #   Now, with reduced set of interactions to keep, find
+        #   locations and vectors for these interactions
         r = np.zeros((3, interactions.size), dtype=float)
         r[0, :] = self.raw_event['ia']['rx'][interactions-1]
         r[1, :] = self.raw_event['ia']['ry'][interactions-1]
@@ -989,7 +996,7 @@ class Sim_File:
         #   Their energy and any adjusts due to x-rays should have
         #   been correctly handled so far.  But the interacdtion location
         #   cannot be taken from the passive material.  Here we assign
-        #   it to the location first HT line for this interacion.
+        #   it to the location of the first HT line for this interacion.
         scatters_in_mask = (
             (energies>0) & (detectors==0) & (interactions>1)
             )
@@ -1053,6 +1060,8 @@ class Sim_File:
         cells = np.append(cells, int_zeros)
         multi_cell_interactions_mask \
             = np.append(multi_cell_interactions_mask, bool_zeros)
+        scatters_in_mask \
+            = np.append(scatters_in_mask, bool_zeros)
 
         #   Loop over multi-cell interactions, and add split cells
         ni = pre_append_length - 1
@@ -1103,18 +1112,21 @@ class Sim_File:
         total_energy = self.raw_event['ht']['energy'].sum()
 
         #   Final checks on energy.
-        if abs(
-                total_energy
-                - (energies.sum() + front_acd_energy + back_acd_energy + calorimeter_energy)
-                ) > 1e-3:
-            energy_difference =  abs(total_energy
-                - (energies.sum() + front_acd_energy + back_acd_energy + calorimeter_energy))
-            if total_energy > 10:
-                print(f'Warning, event {event_num:d}: energy non-conservation of '
-                    + f'{energy_difference:5.2f} keV with initial energy {total_energy:5.2f}' )
-        # if abs(deposited_energy - total_energy) / deposited_energy > 1e-4:
-        #      sys.exit('Error: active energy not HT sum, event '
-        #               + str(event_num))
+        energy_difference =  abs(total_energy - (
+            energies.sum()
+            + front_acd_energy
+            + back_acd_energy
+            + calorimeter_energy
+            ))
+        if abs(energy_difference) > 1:
+            print(f'Warning, event {event_num:d}: ht sum energy'
+                + 'differs from hits + acd + caoloritmeter by '
+                + f'{energy_difference:5.2f} keV, '
+                + f'with initial energy {total_energy:5.2f}' )
+        if abs(deposited_energy - total_energy) / deposited_energy > 1e-4:
+            print(f'Warning, event {event_num:d}: cosima "deposited" energy'
+                + 'differs from hits + acd + caoloritmeter by 1e-4, '
+                + f'with initial energy {total_energy:5.2f}' )
 
         #   Package output
         parsed_event = {}
@@ -1124,6 +1136,7 @@ class Sim_File:
         parsed_event['incident_particle'] = incident_particle
         parsed_event['incident_charged_particle'] \
             = incident_charged_particle
+        parsed_event['incident_r'] = incident_r
         parsed_event['incident_s'] = incident_s
         parsed_event['total_energy'] = total_energy
         parsed_event['front_acd_energy'] = front_acd_energy
@@ -1143,6 +1156,7 @@ class Sim_File:
         parsed_event["decay_in_inert_material"] = decay_in_inert_material
         parsed_event["calorimeter_in_first_3"] = calorimeter_in_first_3
 
+
         #   Arrays of per hit information
         parsed_event['energy'] = energies
         parsed_event['r'] = r
@@ -1153,16 +1167,23 @@ class Sim_File:
         parsed_event['interaction_type'] = types
         parsed_event['interaction'] = interactions
         parsed_event['multi_cell_interaction'] = multi_cell_interactions_mask
+        parsed_event['scatters_in_mask'] = scatters_in_mask
 
         #   These are per struck cell information
         parsed_event['cells_list'] = cells_list
         parsed_event['cell_hit_count'] = cell_hit_count
 
-
         #   Assign to self
         self.parsed_event = parsed_event
 
     def summarize_event(self, only_problems=False):
+        """
+        New, hopefully faster replacement for tree builder and
+        display below.
+
+        Unfinished: need to display graph, and also probably use graph
+        for stuff above that, which also probably needs overhaul.
+        """
 
         import numpy as np
         import copy
@@ -1220,15 +1241,15 @@ class Sim_File:
                     + f'E = {etot:9.1f} keV'
                     )
 
-        for (iid, interactions_id) in zip(
+        for (iid, interactions_ids) in zip(
                 range(self.raw_event['ht']['interaction_id'].size),
-                self.raw_event['ht']['interactions_id']
+                self.raw_event['ht']['interactions_ids']
                 ):
-            if interactions_id.size>1:
+            if interactions_ids.size>1:
                 print(
                     '   '
                     + f'HT line {iid+1:3d}, interactions = '
-                    + str(interactions_id)
+                    + str(interactions_ids)
                     )
 
         #   Adapted from:
@@ -1260,41 +1281,6 @@ class Sim_File:
         tree = traverse({}, graph, roots)
 
         return tree
-
-    def build_tree(self):
-
-        #   attempt to use lists instead of dictionaries - for speed, is
-        #   idea, but not sure it matters
-
-        import copy
-
-        #   Adapted from:
-        #   https://stackoverflow.com/questions/45460653/
-        #   given-a-flat-list-of-parent-child-create-
-        #   a-hierarchical-dictionary-tree
-
-        kids = copy.copy(self.raw_event['ia']['interaction_id'])
-        parents = self.raw_event['ia']['parent_interaction_id']
-
-        lst = [(parent, child) for (parent, child) in zip(parents, kids)]
-
-        num = kids.size + 1
-
-        #   This was called a "directed graph" in the source linked above
-        children = [set() for n in range(num)]
-
-        for parent, child in lst:
-            children[parent].add(child)
-
-        # traversal of the graph (doesn't care about duplicates and cycles)
-        def traverse(hierarchy, children, inters):
-            for inter in inters:
-                hierarchy[inter] = traverse({}, children, children[inter])
-            return hierarchy
-
-        tree = traverse({}, children, [0])
-
-        return children, tree
 
     def make_event_tree(self):
         """
@@ -1523,72 +1509,112 @@ def calculate_z_drift(geo_params, r, cell):
     z_drift = front_term + back_term
     return z_drift
 
-particle_ids = {
-    0: "?", 1: "photon", 2: "positron", 3: "electron", 4: "proton", 5: "anti_proton",
-    6: "neutron", 7: "anti_neutron", 8: "anti_muon", 9: "muon", 10: "anti_tau",
-    11: "tau", 12: "electron_neutrino", 13: "anti_electron_neutrino",
-    14: "muon_neutrino", 15: "anti_muon_neutrino",
-    16: "tau_neutrino", 17: "anti_tau_neutrino", 18: "deuteron",
-    19: "triton", 20: "helium_3", 21: "alpha"
-}
-
-elements_dict = {
-    1: "H", 2: "He", 3: "Li", 4: "Be", 5: "B", 6: "C", 7: "N", 8: "O", 9: "F", 10: "Ne",
-    11: "Na", 12: "Mg", 13: "Al", 14: "Si", 15: "P", 16: "S", 17: "Cl", 18: "Ar", 19: "K", 20: "Ca",
-    21: "Sc", 22: "Ti", 23: "V", 24: "Cr", 25: "Mn", 26: "Fe", 27: "Co", 28: "Ni", 29: "Cu", 30: "Zn",
-    31: "Ga", 32: "Ge", 33: "As", 34: "Se", 35: "Br", 36: "Kr", 37: "Rb", 38: "Sr", 39: "Y", 40: "Zr",
-    41: "Nb", 42: "Mo", 43: "Tc", 44: "Ru", 45: "Rh", 46: "Pd", 47: "Ag", 48: "Cd", 49: "In", 50: "Sn",
-    51: "Sb", 52: "Te", 53: "I", 54: "Xe", 55: "Cs", 56: "Ba", 57: "La", 58: "Ce", 59: "Pr", 60: "Nd",
-    61: "Pm", 62: "Sm", 63: "Eu", 64: "Gd", 65: "Tb", 66: "Dy", 67: "Ho", 68: "Er", 69: "Tm", 70: "Yb",
-    71: "Lu", 72: "Hf", 73: "Ta", 74: "W", 75: "Re", 76: "Os", 77: "Ir", 78: "Pt", 79: "Au", 80: "Hg",
-    81: "Tl", 82: "Pb", 83: "Bi", 84: "Po", 85: "At", 86: "Rn", 87: "Fr", 88: "Ra", 89: "Ac", 90: "Th",
-    91: "Pa", 92: "U", 93: "Np", 94: "Pu", 95: "Am", 96: "Cm", 97: "Bk", 98: "Cf", 99: "Es", 100: "Fm",
-    101: "Md", 102: "No", 103: "Lr", 104: "Rf", 105: "Db", 106: "Sg", 107: "Bh", 108: "Hs", 109: "Mt",
-    110: "Ds", 111: "Rg", 112: "Cn", 113: "Nh", 114: "Fl", 115: "Mc", 116: "Lv", 117: "Ts", 118: "Og"
-}
-
 def particle_name(iso,ia=2):
+
+    particle_ids = {
+        0: "?", 1: "photon", 2: "positron", 3: "electron", 4: "proton",
+        5: "anti_proton",
+        6: "neutron", 7: "anti_neutron", 8: "anti_muon", 9: "muon",
+        10: "anti_tau",
+        11: "tau", 12: "electron_neutrino", 13: "anti_electron_neutrino",
+        14: "muon_neutrino", 15: "anti_muon_neutrino",
+        16: "tau_neutrino", 17: "anti_tau_neutrino", 18: "deuteron",
+        19: "triton", 20: "helium_3", 21: "alpha"
+    }
+
+    elements_dict = {
+        1: "H", 2: "He", 3: "Li", 4: "Be", 5: "B", 6: "C", 7: "N", 8: "O",
+        9: "F", 10: "Ne",
+        11: "Na", 12: "Mg", 13: "Al", 14: "Si", 15: "P", 16: "S", 17: "Cl",
+        18: "Ar", 19: "K", 20: "Ca",
+        21: "Sc", 22: "Ti", 23: "V", 24: "Cr", 25: "Mn", 26: "Fe", 27: "Co",
+        28: "Ni", 29: "Cu", 30: "Zn",
+        31: "Ga", 32: "Ge", 33: "As", 34: "Se", 35: "Br", 36: "Kr", 37: "Rb",
+        38: "Sr", 39: "Y", 40: "Zr",
+        41: "Nb", 42: "Mo", 43: "Tc", 44: "Ru", 45: "Rh", 46: "Pd", 47: "Ag",
+        48: "Cd", 49: "In", 50: "Sn",
+        51: "Sb", 52: "Te", 53: "I", 54: "Xe", 55: "Cs", 56: "Ba", 57: "La",
+        58: "Ce", 59: "Pr", 60: "Nd",
+        61: "Pm", 62: "Sm", 63: "Eu", 64: "Gd", 65: "Tb", 66: "Dy", 67: "Ho",
+        68: "Er", 69: "Tm", 70: "Yb",
+        71: "Lu", 72: "Hf", 73: "Ta", 74: "W", 75: "Re", 76: "Os", 77: "Ir",
+        78: "Pt", 79: "Au", 80: "Hg",
+        81: "Tl", 82: "Pb", 83: "Bi", 84: "Po", 85: "At", 86: "Rn", 87: "Fr",
+        88: "Ra", 89: "Ac", 90: "Th",
+        91: "Pa", 92: "U", 93: "Np", 94: "Pu", 95: "Am", 96: "Cm", 97: "Bk",
+        98: "Cf", 99: "Es", 100: "Fm",
+        101: "Md", 102: "No", 103: "Lr", 104: "Rf", 105: "Db", 106: "Sg",
+        107: "Bh", 108: "Hs", 109: "Mt",
+        110: "Ds", 111: "Rg", 112: "Cn", 113: "Nh", 114: "Fl", 115: "Mc",
+        116: "Lv", 117: "Ts", 118: "Og"
+    }
+
     if int(iso) == 1:
-        if ia == 2:    
+        if ia == 2:
             return particle_ids[int(iso)]
         if ia > 0.21:
-            return particle_ids[int(iso)] + "_atm" 
+            return particle_ids[int(iso)] + "_atm"
         else:
             return particle_ids[int(iso)] + "_cos"
-    
+
     if int(iso) in particle_ids.keys():
         return particle_ids[int(iso)]
     ele = int(iso / 1000)
     av = iso - ele * 1000
     H = elements_dict[ele]
+
     return f"{H}{av}" if av > 0 else H
+
 ######## Helper functions ##########
 
 def read_events_from_sim_file(full_file_name,
                               geo_params=None,
                               num_events_to_read=1e10):
+    """
+    Opens .sim file and reads and parses all events to create hits, which
+    are (ideally) separate electron recoil tracks.
 
-    sim_file = Sim_File(full_file_name)
+    These are then put into a "flattened" set of arrays for vectorized
+    calculations.  This is returned as the diciontaries 'truth', which is
+    per event information, and 'truth_hits', which is mostly
+    quanities of dimension [num_hits, num_events] but also include per
+    struck cell information
+
+    In most cases, this is intended to be called by events_tools
+    instead of directly by the user.
+
+    TODO clean up the poorly thought out use of copy, and replace the
+        matrix representation with awkward structures
+    """
 
     import awkward as ak
     import numpy as np
     import geometry_tools
 
+    #   Open file
+    sim_file = Sim_File(full_file_name)
+
     # Initialize lists to store per-event and per-hit data
     truth_list = []
     truth_hits_list = []
 
+    #   Loop over events
     for n in range(int(num_events_to_read)):
+
+        #   Read next event
         sim_file.read_next_event()
 
+        #   This skips several types of bad events
         if sim_file.good_event:
+
+            #   Parse raw sim file information
             try:
                 sim_file.parse_raw_event(geo_params)
             except:
                 print(f"ERROR, skipping {n}")
                 continue
 
-            # Per event information
+            #   These have values per event, as opposed to per hit
             truth_event = {
                 'time':
                 sim_file.raw_event['event_info']['time'],
@@ -1642,6 +1668,7 @@ def read_events_from_sim_file(full_file_name,
                 sim_file.parsed_event["calorimeter_in_first_3"],
             }
 
+            #   This is values per hit
             truth_hits_event = {
                 'energy':
                 sim_file.parsed_event['energy'],
@@ -1668,40 +1695,47 @@ def read_events_from_sim_file(full_file_name,
             }
 
             # calculated information
+
+            #   "true" theta - from geometry of incident and first
+            #   scattered vectors
             truth_event['theta'] = calculate_theta(
                 truth_hits_event['s_primary'], truth_event['incident_s'])
 
-            truth_event['particle_name'] = particle_name(truth_event['incident_particle'],
-                                                         truth_event['incident_s'][2])
+            truth_event['particle_name'] = particle_name(
+                truth_event['incident_particle'],
+                truth_event['incident_s'][2]
+                )
 
-            truth_hits_event["z_drift"] = calculate_z_drift(
+            truth_hits_event['z_drift'] = calculate_z_drift(
                 geo_params, truth_hits_event['r'], truth_hits_event['cell'])
 
             truth_list.append(truth_event)
             truth_hits_list.append(truth_hits_event)
 
+        #   Reached end of file
         if sim_file.raw_event['end_of_file']:
             break
 
     # Convert lists of dictionaries to awkward arrays
     truth = ak.Array(truth_list)
     truth_hits = ak.Array(truth_hits_list)
+
+    #   Generate locations in cell coordinates
     r_cell = geometry_tools.global_to_cell_coordinates(truth_hits['r'],
                                                        truth_hits['cell'],
                                                        geo_params,
                                                        reverse=False)
     truth_hits['r_cell'] = r_cell
+
+    #   Meta data from the last read sim events
     meta = sim_file.raw_event['meta']
+
     return truth, truth_hits, meta
-
-
-
-
 
 def write_events_file(events, full_file_stub):
     """
     Saves events to disk in .hdf5 and .pickle files
-    full_file_stub includes path but not extension
+    full_file_stub includes path but not extensions
     """
 
     import os
@@ -1721,7 +1755,8 @@ def write_events_file(events, full_file_stub):
         for key in ['truth', 'truth_hits']:
             group = f.create_group(key)
             ak_array = getattr(events, key)
-            form, length, container = ak.to_buffers(ak.to_packed(ak_array), container=group)
+            form, length, container \
+                = ak.to_buffers(ak.to_packed(ak_array), container=group)
             group.attrs['form'] = form.to_json()
             group.attrs['length'] = length
 
@@ -1729,7 +1764,7 @@ def write_events_file(events, full_file_stub):
 def read_events_file(full_file_stub):
     """
     Loads events from .hdf5 and .pickle files
-    full_file_stub includes path but not extension
+    full_file_stub includes path but not extensions
     """
 
     import h5py
@@ -1755,8 +1790,6 @@ def read_events_file(full_file_stub):
 
     return meta, truth, truth_hits
 
-
-
 def is_max_80_percent_larger_than_total(list_values):
     if len(list_values) > 3:
         return False
@@ -1771,9 +1804,6 @@ def is_max_80_percent_larger_than_total(list_values):
         if min(list_values) < 20:
             return True
 
-
-
-
 def write_evta_file(events, paths, bad_events, version='200'):
     """
     Writes events in events['measured_hits'] to an .evta file
@@ -1785,10 +1815,10 @@ def write_evta_file(events, paths, bad_events, version='200'):
     import os
 
     #   Get evta file name
-    events.meta['file_names'] = events.meta['sim_file_name'] 
+    events.meta['file_names'] = events.meta['sim_file_name']
 
     #   Open file, write header
-    f = open(os.path.join(paths['root'], 
+    f = open(os.path.join(paths['root'],
                           events.meta['file_names']) + '.evta', 'w')
 
     f.write('Version ' + version + '\n')
@@ -1806,7 +1836,7 @@ def write_evta_file(events, paths, bad_events, version='200'):
         sigmaz  = 0.1/1000
         calorimeter_xy = 0
         calorimeter_z = -5
-        
+
         # replace all events.measured_hits['energy'] with mh
         mh = events.measured_hits
         truth_mask = mh['_good_mask']
@@ -1814,6 +1844,7 @@ def write_evta_file(events, paths, bad_events, version='200'):
         cal_pass = ~mh['calorimeter_activated']
         decay_in_inert_material = events.truth['decay_in_inert_material'][truth_mask]
         calorimeter_in_first_3  = events.truth['calorimeter_in_first_3'][truth_mask]
+
 
 
         sigma_energy = np.sqrt((0.015*mh['energy'])**2 + 2**2)
@@ -1825,9 +1856,11 @@ def write_evta_file(events, paths, bad_events, version='200'):
                 print("Bad event, skipping")
                 #continue
 
-            if acd_pass[ne] and cal_pass[ne] and not decay_in_inert_material[ne]:
+            if (acd_pass[ne] and cal_pass[ne]
+                and not decay_in_inert_material[ne]):
                 if is_max_80_percent_larger_than_total(mh['energy'][ne]):
-                    print("*** Warning in write_evta_file: One hit dominates ***",mh['energy'][ne])
+                    print('*** Warning in write_evta_file: '
+                          + 'One hit dominates ***', mh["energy"][ne])
                     pass
 
                 f.write('SE\n')
@@ -1851,7 +1884,7 @@ def write_evta_file(events, paths, bad_events, version='200'):
                         + f'{sigmaz*100:10.7f}; '
                         + f'{sigma_energy[ne,nh]:10.7f}\n'
                         )
-                    
+
                 cal_ene = mh["calorimeter_energy"][ne]
                 if cal_ene > 30:
                     f.write(f'HT 2;'

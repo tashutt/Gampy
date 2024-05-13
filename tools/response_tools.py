@@ -26,11 +26,11 @@ def apply_detector_response(events):
     but also adds trigger information to events.truth_hits
 
     events.measured_hits contains:
-        energy, total_energy, quanta_q, r, 
+        energy, total_energy, quanta_q, r,
         cell, cell_index, time, r_cell
     events.truth_hits:
         triggered_p, triggered_q, triggered,
-        
+
     Generates raw photons and electrons, applies simplified treatment
     of their propogation and measurement including fluctuations at all
     branching steps, adds readout noise, sums charge and light energy
@@ -59,7 +59,7 @@ def apply_detector_response(events):
         More complete treatment is documented in a slide deck
 
     AWKWARD UPDATE
-    -- is there a need to remove hits that did not trigger? 
+    -- is there a need to remove hits that did not trigger?
 
     """
 
@@ -69,8 +69,8 @@ def apply_detector_response(events):
     import copy
     import geometry_tools
 
-    print('Applying detector response', events.params.coarse_grids['signal_fraction'], "Signal Fraction")
-
+    print('Applying detector response',
+          events.params.coarse_grids['signal_fraction'], "Signal Fraction")
 
     #   Calculate detector params
     events.params.calculate()
@@ -79,92 +79,93 @@ def apply_detector_response(events):
     measured_hits = {}
 
     #  Add fluctuations, find measured signal, apply threshold
+    #   TODO: need to fix this
     # charge_fraction = np.exp(-events.truth_hits['z_drift'] /
     #                          events.params.charge_drift['drift_length'])
     charge_fraction = 1
-    
+
     quanta = find_hit_quanta(events.truth_hits['energy'], charge_fraction,
                              events.params)
-    
+
     quanta['q']['measured'] \
                 = quanta['q']['collected'] * events.params.coarse_grids['signal_fraction'] \
                  + events.params.coarse_grids['noise'] \
                     * np.sqrt(events.params.coarse_grids['signal_sharing']) \
                      * ak.Array([randn(L) for L in ak.num(quanta['q']['collected'])])
-    
+
     triggered_q = (quanta['q']['measured'] > events.params.coarse_grids['noise'] *
                    np.sqrt(events.params.coarse_grids['signal_sharing']) *
                    events.params.coarse_grids['threshold_sigma'])
-    
+
     quanta['q']['measured'] = quanta['q']['measured'] \
         / events.params.coarse_grids['signal_fraction'] \
         / charge_fraction
-    
+
 
     #   Measured light adds readout spe noise
     quanta['p']['measured'] = quanta['p']['collected'] \
         + events.params.light['spe_noise'] \
             * ak.Array([randn(L) for L in ak.num(quanta['q']['collected'])])
-    
+
     quanta_q = quanta['q']['measured']
-    
+
     cell_q, cell_light = [], []
     for event_num in range(len(triggered_q)):
         cells_in_this_event = events.truth['num_cells'][event_num]
-    
+
         m_q = quanta['q']['measured'][event_num]
         m_light = quanta['p']['measured'][event_num] / events.params.light[
             'collection']
-    
+
         temp_cq, temp_clight = [], []
         for nc in range(cells_in_this_event):
             this_cells = events.truth_hits['cells_list'][event_num, nc]
             same_cell = events.truth_hits['cell'][event_num] == this_cells
-    
+
             sum_of_charges = np.sum(m_q[same_cell & triggered_q[event_num]])
             sum_of_charges = 0 if sum_of_charges < 0 else sum_of_charges
             temp_cq.append(sum_of_charges)
-    
+
             sum_of_light = np.sum(m_light[same_cell])
             sum_of_light = 0 if sum_of_light < 0 else sum_of_light
             temp_clight.append(sum_of_light)
-    
+
         cell_q.append(temp_cq)
         cell_light.append(temp_clight)
-    
+
     cell_q = ak.Array(cell_q)
     cell_p = ak.Array(cell_light)
-    
+
     #   Summed energy in cells comes from sum of charge and light
     cell_energy = (cell_p + cell_q) * events.params.material['w']
-    
+
     i_cells = events.truth_hits['cell_index']
-    
+
     # Define a small constant to avoid division by very small numbers
     epsilon = 0.00000000000045
 
     safe_denominator = cell_q[i_cells] + epsilon
     bad_q_in_cell = (cell_q[i_cells] < events.params.coarse_grids['noise'] *
                    np.sqrt(events.params.coarse_grids['signal_sharing']) *
-                   events.params.coarse_grids['threshold_sigma']) 
+                   events.params.coarse_grids['threshold_sigma'])
 
     # Apply the scaling factor to the energy calculation
-    measured_hits['energy'] = np.where(bad_q_in_cell, 
+    measured_hits['energy'] = np.where(bad_q_in_cell,
                                    0,  # Energy is 0 when bad_q_in_cell is True
                                    (cell_energy[i_cells] / safe_denominator) * quanta_q)
-    
+
     triggered_p = cell_p[i_cells] > events.params.light['spe_threshold']
-    
+
     #   Hits trigger is and of q and p triggers
     triggered = triggered_q & triggered_p
-    
+
     #   Event energy is sum of cell charge and light, applying
     #   threhshold to light signal
     measured_hits['total_energy'] = np.sum(
         (cell_p * (cell_p > events.params.light['spe_threshold']) + cell_q) *
         events.params.material['w'],
         axis=1)
-    
+
     #   Charge signal
     measured_hits['quanta_q'] = copy.copy(quanta_q)
     measured_hits['r'] = smear_space(events.truth_hits['r'], events.params, events.truth_hits['energy'])
@@ -175,16 +176,18 @@ def apply_detector_response(events):
     measured_hits['a_uncertainty'] = angle_error_uncertainty(measured_hits['energy'], 
                                                              events.truth_hits['r'][:,2])
 
+
     #   Save trigger information - in truth hits, since this is
     #   effectively truth data that is not known as a measurement
     events.truth_hits['triggered_q'] = triggered_q
     events.truth_hits['triggered_p'] = triggered_p
     events.truth_hits['triggered'] = triggered
-    
+
     #   alive and cell info copied from measured_hits.
     measured_hits['cell'] = copy.copy(events.truth_hits['cell'][triggered])
     measured_hits['cell_index'] = copy.copy(events.truth_hits['cell_index'][triggered])
             
+
     #   Measured light from ACD
     measured_acd_energy = events.truth['front_acd_energy'] + events.truth['back_acd_energy'] \
         + events.params.light['spe_noise'] \
@@ -207,6 +210,7 @@ def apply_detector_response(events):
     measured_hits['r']      = measured_hits['r'][r_mask][good_mask]
     measured_hits['s_secondary'] = measured_hits['a'][r_mask][good_mask]
     
+
     measured_hits['time']   = events.truth['time'][good_mask]
     measured_hits['triggered_id'] = events.truth['triggered_id'][good_mask]
     measured_hits['cell']   = measured_hits['cell'][good_mask]
@@ -216,7 +220,7 @@ def apply_detector_response(events):
     measured_hits['triggered']    = events.truth_hits['triggered'][good_mask]
     measured_hits['ACD_activated'] = acd_activated[good_mask]
     measured_hits['calorimeter_energy'] = measured_hits['calorimeter_energy'][good_mask]
-    
+
     measured_hits['_good_mask']   = good_mask
     measured_hits['_bad_mask']    = ~good_mask
 
@@ -261,10 +265,10 @@ def calculate_measured_calorimeter_energy(cal_ene, params):
     ph_collected = cal_ene * params.light['collection'] + \
                    0.1* np.sqrt(cal_ene* (1 - params.light['collection']) * params.light['collection']) * \
                    ak.Array(randn(len(cal_ene)))
-    
+
     ph_measured = ph_collected + params.light['spe_noise'] * ak.Array(randn( len(cal_ene) ) )
 
-    return ph_measured / params.light['collection'] 
+    return ph_measured / params.light['collection']
 
 
 def find_hit_quanta(energy, charge_fraction, params):
@@ -342,10 +346,12 @@ def find_hit_quanta(energy, charge_fraction, params):
 
     #   Light: collection fraction and flucutations due to that
     p['collected'] = (
-        p['raw'] * params.light['collection'] +
-        sqrt(p['raw'] *
-             (1 - params.light['collection']) * params.light['collection']) *
-        ak.Array([randn(len(sub_array)) for sub_array in energy]))
+        p['raw'] * params.light['collection']
+        + sqrt(p['raw']
+               * (1 - params.light['collection'])
+               * params.light['collection'])
+        * ak.Array([randn(len(sub_array)) for sub_array in energy])
+        )
 
     # #   Measured signals.  Charge gets coarse grid noise, light adds
     # #   readout spe noise
@@ -378,7 +384,7 @@ def smear_space(r, params, energy=[]):
     sigma['transverse'] = 0
     sigma['longitudinal'] = 0
 
-    
+
     transverse_part = (params.spatial_resolution['sigma_xy']**2 +
                        (sigma['transverse'] *
                         params.charge_drift['diffusion_fraction'])**2)**0.5
@@ -395,6 +401,7 @@ def smear_space(r, params, energy=[]):
               0.32*1e-3,                            
               0.42*1e-3, 
               0.6*1e-3]
+
 
     def rrms_quadratic_fit(energy):
         a0, a1, a2 = 1.12295665e-06, 1.02477612e-06, -4.67093106e-10
@@ -435,7 +442,6 @@ def smear_space(r, params, energy=[]):
                                      new_rz[:,np.newaxis]], axis=1)
 
     return combined_array
-
 
 
 # angle estimation
@@ -537,5 +543,6 @@ def smear_angle(s, Z=[],E=[]):
                        )
     
     return sn
+
 
 
