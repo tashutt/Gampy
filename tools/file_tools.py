@@ -294,7 +294,7 @@ class Sim_File:
                 ht['energy'].append(float(splitline[5]))
                 ht['time'].append(float(splitline[6]))
                 ht['interaction_id'].append(int(splitline[7]))
-                ht['interactions_ids'].append(
+                ht['interactions_id'].append(
                     np.array(splitline[7:], dtype=int))
 
                 text_line = self.f.readline().strip('\n')
@@ -303,7 +303,7 @@ class Sim_File:
 
             #   Convert lists to arrays, apart from interactions_idss
             for key in ht:
-                if key!='interactions_ids':
+                if key!='interactions_id':
                     ht[key] = np.array(ht[key])
 
             #   Assign HT to sim structure, if it exists
