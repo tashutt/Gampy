@@ -138,6 +138,7 @@ class Events:
         # #   Save parameters used in meta data
         # self.meta['params'] = params
 
+    ###### PILEUP START ######
     def pileup_analysis(self, drift_len_via_diffusion_enabled=0):
         """
         Add a boolean to events.measured that describes if the measured energy
@@ -248,169 +249,118 @@ class Events:
         file_tools.write_evta_file(self, paths, bad_events, evta_version)
         return True
 
-    def calculate_order(self,
-                           num_hits_list,
-                           mask=None,
-                           use_truth_hits=False
-                           ):
-        """ Calculates hit order using ckd method only.
-            If use_truth_hits, then calcualtes from MC truth
-        """
+    ###### Native reconstruction tools ######
+    # There are 2 distinct motivations to do reconstruction:
+    # 1. To calculate the ARM and efficiency of the reconstruction
+    # --- for this, there has to be a point source with known angle
+    # 2. To calculate the energy and cone angle of the reconstructed events
 
+    # ARM is calculated within the reconstruction_tools.py if IN_VECTOR is given
+
+    # default is to use the measured hits, but if use_truth_hits is True, then
+    # the truth hits are used
+
+
+    def reconstruct_events(self,
+                        IN_VECTOR = None,
+                        LEN_OF_CKD_HITS = [3,4,5,6,7,8], 
+                        use_truth_hits=False,
+                        save_name=""):
+        """ 
+        Reconstructs the events using the measured hits. If use_truth_hits is True,
+        the truth hits are used instead.
+        """
+        import reconstruction_tools
+
+        db = reconstruction_tools.reconstruct(self,  
+                                            LEN_OF_CKD_HITS, 
+                                            IN_VECTOR,
+                                            use_truth_hits, 
+                                            outside_mask=None, 
+                                            MIN_ENERGY=0.1,
+                                            filename=save_name)
+        
+        self.reconstructed_data = db
+
+    def train_classifier_on_self(self, database=None):
+        """
+        Trains a classifier on the reconstructed data
+        Trainings should be done on more than one set of events
+        Training is using truth data to learn (in the output), 
+        so it's cheating if it's used on itself [kind of]
+        """
+        import reconstruction_tools
+
+        if database is None:
+            clf = reconstruction_tools.train_classifier(self.reconstructed_data,
+                                                        filename='classifier.pkl', 
+                                                        plot_confusion_matrix=True) 
+        else:
+            clf = reconstruction_tools.train_classifier(database,
+                                                        filename='a_major_classifier.pkl', 
+                                                        plot_confusion_matrix=True)
+        self.classifier = clf   
+        
+
+    def classify_reconstructed_events(self,save_name=None,load_classifier=None):
+        import joblib
+        from scipy.optimize import curve_fit
+        import matplotlib.pyplot as plt
         import numpy as np
 
-        import reconstruction_tools
+        if load_classifier is None:
+            print('Trying to use self-clasiffier. Bad practice')
+            classifier = self.classifier
+        else:
+            classifier = joblib.load(load_classifier)
+        
+        features = ['e_out_CKD', 'min_hit_distance', 'kn_probability', 
+                    'calculated_energy', 'num_of_hits', 'first_scatter_angle']
 
-        if mask is None:
-            mask = np.ones(self.truth['num_hits'].shape, dtype=bool)
-        #   Calculate from truth hits
+        df = self.reconstructed_data
+        X = df[features]
+        df['use'] = classifier.predict(X)
 
-        #   Calculate from truth hits
-        self.truth_hits['order'] = reconstruction_tools.calculate_order(
-            self.truth_hits,
-            num_hits_list,
-            mask=mask
-            )
+        ### fitting the ARM histogram ##########
+        def lorentzian(x, x0, gamma, A):
+            return A * (gamma**2 / ((x - x0)**2 + gamma**2))
 
-        #   Calculate from measured hits, if present
-        if hasattr(self, 'measured_hits'):
-            self.measured_hits['order'] \
-                = reconstruction_tools.calculate_order(
-                    self.measured_hits,
-                    num_hits_list,
-                    mask=mask
-                    )
+        hist, bins = np.histogram(df.query("use==1").ARM, bins=50, range=(-10,10))
+        x = (bins[1:] + bins[:-1]) / 2  
+        y = hist
 
-    def calculate_pointing(self):
-        """
-        Computes theta from energy of 1st Compton scatter
+        popt, _ = curve_fit(lorentzian, x, y, p0=[0, 1, max(y)])
 
-        Acts on truth_hits, and, if it exists, measured_hits
+        plt.clf()
+        plt.hist(df.query("use==1").ARM, bins=50, range=(-10,10), alpha=0.6, label='ARM histogram')
+        plt.xlabel('ARM [degrees]')
+        plt.ylabel('Counts')
+        plt.title('ARM histogram')
+        plt.xlim(-10, 10)
+        plt.plot(x, lorentzian(x, *popt), label='Lorentzian fit', color='red')
 
-        Computes based on true order (1st hit is 1st scatter), and,
-        if present, also on measured order
+        fwhm = 2 * popt[1]
+        plt.annotate(f'FWHM = {fwhm:.2f} degrees', xy=(0.1, 0.89), 
+                    xycoords='axes fraction', fontsize=14)
 
-        9/5/22 TS  Overhaul of previous versions
-        """
+        plt.legend()
+        if save_name is not None:
+            plt.savefig(f'{save_name}_ARM_histogram.png')
+        plt.show()
+        print(f"FWHM from fit: {fwhm:.2f}")
+        ########################################
+        
+        self.reconstructed_data = df
 
-        import reconstruction_tools
 
-        #   Pointing from truth hits
-        reconstruction_tools.construct_pointing_truth_order(self.truth_hits)
-        if 'order' in self.truth_hits:
-            reconstruction_tools.construct_pointing_measured_order(
-                self.truth_hits
-                )
 
-        #   Pointing from neasured hits
-        if hasattr(self, 'measured_hits'):
-            reconstruction_tools.construct_pointing_truth_order(
-                self.measured_hits
-                )
-            if 'order' in self.measured_hits:
-                reconstruction_tools.construct_pointing_measured_order(
-                    self.measured_hits
-                    )
 
-    def calculate_pointing_error(self):
-        """
-        Computes pointing from vertices and response, and compares these to
-        truth from vertices.  Uses truth order, and excludes events
-        with missing energy.
 
-        cones.
-            dtheta.geometry - opening angle between true and pointing.ray,
-                the measured ray
-            dtheta.energy - difference between pointing.theta, the
-                energy determined cone angle, and the true angle
-            dtheta.combined - quadrature sum of these
-            ray_length - length of measured ray
-            theta - energetically measured cone angle
-            energy - compoton scatter measured energy
 
-        Note of length of fields: pointing.theta, etc., have length
-        sum(pointing.success).  The length of cones fields is smaller,
-        because of the additional requirement of no missing energy
 
-        3/15/20     TS
-        3/22 - python port, TS
-        """
 
-        import numpy as np
 
-        import reconstruction_tools
 
-        #   dot product
-        def dot(a, b):
-            return  np.sum(a * b, axis=0)
-
-        #   Exclude missing energy event
-        mask = ~self.truth['missing_energy']
-
-        #   Measured pointing
-        measured_theta = np.zeros(mask.shape)
-        measured_ray = np.zeros((3, mask.size))
-        measured_energy = np.zeros(mask.shape)
-        measured_total_energy = np.zeros(mask.shape)
-        measured_pointing \
-            = reconstruction_tools.construct_pointing_truth_order(
-            self.measured_hits
-            )
-        measured_theta[measured_pointing['success']] \
-            = measured_pointing['theta']
-        measured_ray[:, measured_pointing['success']] \
-            = measured_pointing['ray']
-        measured_energy[measured_pointing['success']] \
-            = measured_pointing['energy']['compton']
-        measured_total_energy[measured_pointing['success']] \
-            = measured_pointing['energy']['total']
-
-        #   True ray and theta
-        truth_theta = np.zeros(mask.shape)
-        truth_ray = np.zeros((3, mask.size))
-        truth_pointing \
-            = reconstruction_tools.construct_pointing_truth_order(
-                self.truth_hits
-                )
-        truth_theta[truth_pointing['success']] = truth_pointing['theta']
-        truth_ray[:, truth_pointing['success']] = truth_pointing['ray']
-
-        #   Update mask to include successful measure and truth pointing
-        mask = mask & truth_pointing['success'] & measured_pointing['success']
-
-        #   Calculate cones
-        cones = {}
-        cones['dtheta'] = {}
-
-        #   Geometry error is opening angle between true and measured rays,
-        #   measured ray is pointing.ray
-        cones['dtheta']['geometry'] = np.arccos(
-            dot(measured_ray[:, mask], truth_ray[:, mask]) \
-                / np.sqrt(dot(measured_ray[:, mask], measured_ray[:, mask]))
-                / np.sqrt(dot(truth_ray[:, mask], truth_ray[:, mask]))
-                )
-
-        #   Energy error is difference between true and measured theta,
-        #   measured is in pointing, while true is in vertices
-        cones['dtheta']['energy'] =  np.abs(
-            truth_theta[mask] - measured_theta[mask]
-            )
-
-        #   Combined cones is quadrature sum
-        cones['dtheta']['combined']= np.sqrt(
-            cones['dtheta']['geometry']**2 \
-                + cones['dtheta']['energy']**2
-            )
-
-        cones['ray_length'] = np.sqrt(
-            dot(measured_ray[:, mask], measured_ray[:, mask])
-            )
-        cones['theta'] = measured_theta[mask]
-        cones['energy'] = measured_energy[mask]
-        cones['total_energy'] = measured_total_energy[mask]
-        cones['theta_true'] = truth_theta[mask]
-
-        self.cones = cones
 
 def calculate_stats(
             self,
@@ -651,4 +601,5 @@ def trim_events(events, num_trimmed_events):
     events.meta['num_events'] = num_trimmed_events
 
     return events
+
 

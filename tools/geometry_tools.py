@@ -408,7 +408,8 @@ def calculate_geomega_geometry_v1(params):
         + '\n'
         )
     lines.append('Top_ACD.Rotation   0. 0. 0.\n')
-    lines.append('Top_ACD.Mother     AllArgon\n')
+    lines.append('Bottom_ACD.Material Argon\n')
+    lines.append('Top_ACD.Mother     WorldVolume\n')
 
     lines.append('\n')
 

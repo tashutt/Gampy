@@ -255,7 +255,8 @@ class Sim_File:
             ht['energy'] = deque()
             ht['time'] = deque()
             ht['interaction_id'] = deque()
-            ht['interactions_ids'] = []
+            ht['interactions_id'] = deque()
+
 
             #   Loop over HTsim lines
             n = 0
@@ -280,6 +281,12 @@ class Sim_File:
                     ht['cell'].append(int(splitline[1].split('_')[1]))
                 else:
                     ht['cell'].append(0)
+
+                # if the detector id is 2 = calorimeter
+                # AND the 7th index (interaction id) is a number less than 5
+                # then that event should be flagged as a 
+                # bad calorimeter event... implemented in parse raw event
+
 
                 ht['rx'].append(float(splitline[2]))
                 ht['ry'].append(float(splitline[3]))
@@ -442,6 +449,10 @@ class Sim_File:
         decay_list = self.raw_event['ia']['interaction_type'] == 11 # decay
         inert_material_list = self.raw_event['ia']['detector'] == 0
         decay_in_inert_material = np.any(decay_list & inert_material_list)
+        calorimeter_involved = self.raw_event['ia']['detector'] == 2
+        happend_in_first_3   = self.raw_event['ia']['interaction_id'] < 5   
+        calorimeter_in_first_3 = np.any(calorimeter_involved & happend_in_first_3) 
+        
 
         #   The deposited energy, as reported by Cosima
         deposited_energy = self.raw_event['event_info']['deposited_energy']
@@ -1142,7 +1153,9 @@ class Sim_File:
         parsed_event['escaped_back_energy'] = escaped_back_energy
         parsed_event['escaped_through_energy'] = escaped_through_energy
         parsed_event['num_cells'] = num_cells
-        parsed_event['decay_in_inert_material'] = decay_in_inert_material
+        parsed_event["decay_in_inert_material"] = decay_in_inert_material
+        parsed_event["calorimeter_in_first_3"] = calorimeter_in_first_3
+
 
         #   Arrays of per hit information
         parsed_event['energy'] = energies
@@ -1651,6 +1664,8 @@ def read_events_from_sim_file(full_file_name,
                 sim_file.parsed_event['num_cells'],
                 'decay_in_inert_material':
                 sim_file.parsed_event["decay_in_inert_material"],
+                'calorimeter_in_first_3':
+                sim_file.parsed_event["calorimeter_in_first_3"],
             }
 
             #   This is values per hit
@@ -1827,8 +1842,10 @@ def write_evta_file(events, paths, bad_events, version='200'):
         truth_mask = mh['_good_mask']
         acd_pass = ~mh['ACD_activated']
         cal_pass = ~mh['calorimeter_activated']
-        decay_in_inert_material \
-            = events.truth['decay_in_inert_material'][truth_mask]
+        decay_in_inert_material = events.truth['decay_in_inert_material'][truth_mask]
+        calorimeter_in_first_3  = events.truth['calorimeter_in_first_3'][truth_mask]
+
+
 
         sigma_energy = np.sqrt((0.015*mh['energy'])**2 + 2**2)
         print("\n\n\n BAD EVENTS: ", bad_events, "\n\n\n")
