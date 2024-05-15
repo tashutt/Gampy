@@ -151,6 +151,7 @@ class Track:
         max_num_e = noise / 2.0
 
         #   De-compress track so num_e is smaller than noise by some factor
+        #   TODO: handle general case of different keys in raw_track
         in_args = [self.raw_track['r']]
         if 'track_id' in self.raw_track:
             in_args.append(self.raw_track['track_id'])
@@ -630,7 +631,7 @@ def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
 
     return r_out, num_e_out
 
-def decompress_track(max_electrons_per_bin, num_electrons, *args):
+def decompress_track(max_electrons_per_bin, num_electrons, args):
     """
     Take in sample_data (shape k,n with n the number of samples
     and k the number of datatypes, e.g. r, trackID, pID) and n_electrons

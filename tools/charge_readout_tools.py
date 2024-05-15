@@ -11,10 +11,10 @@ must also be provided, which can be created in params_tool.
 
 TODO: Implement coarse trigger for pixel chips
 TODO: Revive hexagonal cells.  Chip array readout. Update naming: x,y -> 0,1
-TODO: Fevisit focusing, add de-focussing to output
+TODO: Revisit focusing, add de-focussing to output
 TODO[ts]: Implement overall z timing
 TODO[ts]: Implement signals spanning cells.
-TODO[ts]: Integrate Bahrudin's code
+TODO[ts]: Integrate Bahrudin's code???
 TODO[ts]: Add cube method to flesh out pixel data for ML
 
 @author: tshutt
@@ -40,7 +40,7 @@ def readout_dual_scale_pixels(r, num_e, array_sensors, pixel_sensors,
     Output: pixel_samples, with fields:
         if triggered_output:
             samples_triggered = pixel samples with noise, and
-                above trigger thershold.  1d array
+                above trigger threshold.  1d array
             r_triggered - locations of samples. array of size
                 [3, samples_triggered.size]
         if raw_output:
