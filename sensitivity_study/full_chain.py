@@ -22,14 +22,16 @@ import awkward as ak
 import time
 import pickle
 
-
+# activation_file_name = "ActivationForCsI_10cm_1.5_v4.dat"
 import argparse
 parser = argparse.ArgumentParser(description='choose sim options')
 parser.add_argument('--events', type=int, default=100_000, help='specify number of events. ')
 parser.add_argument('-activation', action='store_true', default=True, help='Activate activation. Specify duration instead of event count.')
-parser.add_argument('-analysis', action='store_true', default=False, help='Do the analysis')
+parser.add_argument('--study', type=str, default="Optimistic", help='Define the Geometry study. Default Optimistic. Options: Optimistic, Nominal, Pessimistic.')
+parser.add_argument('--R_analysis', type=float, default=np.sqrt(2.0/np.pi), help='2 m2 active area. Default np.sqrt(2.0/np.pi)')
 parser.add_argument('-only_photons', action='store_true', default=True, help='Only have photons as sources')
 parser.add_argument('-recompute_activation', action='store_true', default=False, help='Recompute the activation. Important for adding more materials')
+parser.add_argument('--activation_file_name', type=str, default=None, help='Name of the activation file. Default None.')
 parser.add_argument("--eng", type=str, default='2-8', help="Specify an energy range in keV, 'start-end', default 2-8")
 parser.add_argument('--alt', type=int, default=550, help="Altitude in km. Default 550.")
 parser.add_argument('--inc', type=int, default=0, help="Inclination in degrees. Default 0.")
@@ -45,11 +47,12 @@ parser.add_argument('--cell_h', type=float, default=0.175, help='cell height (m)
 parser.add_argument('--cell_wall_thickness', type=float, default=0.3e-3, help='cell wall thickness (m), default 0.0003')
 parser.add_argument('--acd_thickness', type=float, default=0.005, help='acd thickness (m) default 0.007')
 
-activation_file_name = "ActivationForCsI_10cm_1.5_v4.dat"
 del_sim_files = True
+N_hits_to_reconstruct = 11
 
 args = parser.parse_args()
 args_dict = vars(args)
+activation_file_name = args.activation_file_name
 # Save the arguments as a NumPy binary file
 for arg, value in args_dict.items():
     print(f"{arg}: {value}")
@@ -58,8 +61,8 @@ for arg, value in args_dict.items():
 
 
 from cosmic_flux import cosmic_flux_gen
+STUDY = args.study
 
-STUDY = "Optimistic"
 base_directory = f'backgrounds_{STUDY}' 
 i = 1
 while True:
@@ -99,7 +102,7 @@ if STUDY == "Optimistic":
     geo_params.inputs['vessel']['wall_thickness'] = 2e-3
     geo_params.inputs['cells']['wall_thickness'] = 0.75e-4
 
-elif STUDY == "Neutral":
+elif STUDY == "Nominal":
     geo_params.inputs['anode_planes']['thickness'] = 1.5e-3
     geo_params.inputs['cathode_plane']['thickness'] = 1.5e-3
     geo_params.inputs['vessel']['wall_thickness'] = 3e-3
@@ -110,6 +113,10 @@ elif STUDY == "Pessimistic":
     geo_params.inputs['cathode_plane']['thickness'] = 3e-3
     geo_params.inputs['vessel']['wall_thickness'] = 4e-3
     geo_params.inputs['cells']['wall_thickness'] = 5e-4
+
+else:
+    print("Invalid study. Options are Optimistic, Nominal, Pessimistic.")
+    sys.exit()
 
 
 # modify any parameter
@@ -131,6 +138,15 @@ geo_file_name = file_tools.write_geo_files(
     values_id=4
     )
 
+# find geo.setup file in the root directory and rename it to include the study name
+time.sleep(1.21)
+geo_setup_file = next((file for file in os.listdir(paths['root']) if file.endswith('.geo.setup')), None)
+if geo_setup_file is not None:
+    new_geo_setup_file = geo_setup_file.replace('.geo.setup', f'_{STUDY}.geo.setup')
+    os.rename(os.path.join(paths['root'], geo_setup_file), os.path.join(paths['root'], new_geo_setup_file))
+    os.rename(os.path.join(paths['root'], geo_setup_file.replace('.setup','.pickle')), 
+              os.path.join(paths['root'], new_geo_setup_file.replace('.setup','.pickle')))
+    geo_file_name = new_geo_setup_file.replace('.setup', '')
 
 source_file_path =  cosmic_flux_gen.generate_cosmic_simulation(
                                             geo_file_name, 
@@ -294,7 +310,7 @@ print(f"Analyzing {sim_file_name}")
 
 
 ################## ANALYSIS ####################
-in_energy = 1000
+in_energy = 1000 # fake numbers, no need
 in_angle = 1.0
 in_time = float(sim_file_name.split('background_')[1].replace('.sim', ''))
 print("Time", in_time) 
@@ -354,7 +370,7 @@ if STUDY == "Optimistic":
     events.params.inputs['material']['sigma_p'] = 0.04
     events.params.inputs['coarse_grids']['noise'] = 10
 
-elif STUDY == "Neutral":
+elif STUDY == "Nominal":
     events.params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
     events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
     events.params.inputs['light']['collection'] = 0.1
@@ -374,7 +390,7 @@ truth = events.truth
 hits  = events.truth_hits 
 
 # 2 m2 detector
-R_max = np.sqrt(2/np.pi)
+R_max = args.R_analysis
 len_mask = ak.num(hits.r[:, 0]) > 0
 R = np.linalg.norm(hits[len_mask].r[:, :2, 0],axis=1)
 mask = np.zeros(len(truth), dtype=bool)
@@ -391,8 +407,9 @@ events.apply_detector_response()
 
 sim_file_name = os.path.basename(sim_file_name)
 in_vector = np.array([-np.sqrt(1-in_angle**2), 0, -in_angle])
+HIT_LIST = [i for i in range(3, N_hits_to_reconstruct)]
 events.reconstruct_events(IN_VECTOR=in_vector,
                           save_name=sim_file_name,
-                          LEN_OF_CKD_HITS = [3,4,5,6,7,8,9,10,11])
+                          LEN_OF_CKD_HITS = HIT_LIST)
 
 
