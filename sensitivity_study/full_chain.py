@@ -270,7 +270,7 @@ if args.activation:
 
 file_a_path = sim_file_name + '.sim'  
 file_b_path = activation_file_name + '.sim'
-output_path = f'background_{sim_time}.sim' 
+output_path = f'background_{sim_time}_minEnergy{energy_low}.sim' 
 
 print(f"Inserting content from '{file_b_path}' into '{file_a_path}' and saving as '{output_path}'")
 
