@@ -21,7 +21,9 @@ subprocess.run(["mkdir", "-p", new_working_dir])
 subprocess.run(["cp", "-R", "./", new_working_dir])
 
 
-def write_run_command(file,i):
+def write_run_command(file,i, min_energy):
+    energy_string = f"{int(min_energy)-8}"
+    print(energy_string)
     pre = f"""#!/bin/bash
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -29,14 +31,16 @@ def write_run_command(file,i):
 #SBATCH --time=0:20:00
 
 cd {new_working_dir}
-python full_chain.py --events {events_in_run} --study {STUDY} --activation_file_name {activation_file_name} --R_analysis {R_analysis}
+python full_chain.py --events {events_in_run} --study {STUDY} --activation_file_name {activation_file_name} --R_analysis {R_analysis} --eng {energy_string}
 
 mv */*.pkl {cur_dir}
 cd {cur_dir}
 """
     file.write(pre)
 
-for i in range(how_many_runs):    
+for i in range(how_many_runs):
+    min_energy = int(1 + 6*i/how_many_runs)
+    print(f"Min Energy is 10^ {min_energy}")
     name_of_job = f"runCosima_{i}.sh"
 
     with open(name_of_job, mode='w') as f:
