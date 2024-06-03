@@ -44,7 +44,7 @@ for i in range(how_many_runs):
     name_of_job = f"runCosima_{i}.sh"
 
     with open(name_of_job, mode='w') as f:
-        write_run_command(f,i)
+        write_run_command(f,i,min_energy)
     
     time.sleep(20.5)
     print(f"Running {name_of_job}")
