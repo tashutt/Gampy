@@ -3,15 +3,72 @@ import math
 import subprocess
 import os, glob
 import time
+import sys
+sys.path.append('tools')
+import params_tools
+import file_tools
+
+STUDY = "Nominal"
+num_of_hits_to_rec = 11
 
 sister_dir = "/sdf/scratch/kipac/MeV/gammatpc"
 cur_dir    = os.getcwd()
 name_of_current_dir = os.path.basename(cur_dir)
-
 new_working_dir = os.path.join(sister_dir, name_of_current_dir)
 
-# Constants
-GEOFILE = 'GammaTPC_GeoT01v04_optimistic.geo.setup'
+#   Load default geo params
+geo_params = params_tools.GeoParams(detector_geometry='geomega',
+                                    cell_geometry='hexagonal')
+
+if STUDY == "Optimistic":
+    geo_params.inputs['anode_planes']['thickness'] = 0.75e-3
+    geo_params.inputs['cathode_plane']['thickness'] = 0.75e-3
+    geo_params.inputs['vessel']['wall_thickness'] = 2e-3
+    geo_params.inputs['cells']['wall_thickness'] = 0.75e-4
+
+elif STUDY == "Nominal":
+    geo_params.inputs['anode_planes']['thickness'] = 1.5e-3
+    geo_params.inputs['cathode_plane']['thickness'] = 1.5e-3
+    geo_params.inputs['vessel']['wall_thickness'] = 3e-3
+    geo_params.inputs['cells']['wall_thickness'] = 2e-4
+
+elif STUDY == "Pessimistic":
+    geo_params.inputs['anode_planes']['thickness'] = 3e-3
+    geo_params.inputs['cathode_plane']['thickness'] = 3e-3
+    geo_params.inputs['vessel']['wall_thickness'] = 4e-3
+    geo_params.inputs['cells']['wall_thickness'] = 5e-4
+
+else:
+    print("Invalid study. Options are Optimistic, Nominal, Pessimistic.")
+    sys.exit()
+
+
+# modify any parameter
+geo_params.inputs['vessel']['r_outer'] = np.sqrt(2.0 / np.pi)  # 2 m2 active area
+geo_params.inputs['cells']['height'] = 0.175
+geo_params.inputs['acd'] = {'thickness': 0.005}
+geo_params.inputs['calorimeter']['thickness'] = 0.1
+geo_params.inputs['shield']['thickness'] = 0
+
+geo_params.calculate()
+
+geo_file_name = file_tools.write_geo_files(
+    "",
+    geo_params,
+    values_id=4
+    )
+
+# add .setup to end of geo file if not already there
+if not geo_file_name.endswith('.setup'):
+    geo_file_name += '.setup'
+GEOFILE = geo_file_name
+print(f"Geo file: {GEOFILE}")
+
+# find a file that ends in .geo.pickle and rename it to .geo.setup.pickle file in the current directory
+geo_pickle_files = glob.glob('*.geo.pickle')
+if len(geo_pickle_files) == 1:
+    os.rename(geo_pickle_files[0], geo_pickle_files[0].replace('.geo.pickle', '.geo.setup.pickle'))
+
 ONE_BEAM = 'FarFieldPointSource'
 LOG_E = [2.2, 2.5,2.7,3,3.2,3.5,3.7,4]#,4.2] #,3.7,4,4.2,4.5,4.7]
 ANGLES = [0, 25.8, 36.9]  #, 45.6, 53.1, 60]
@@ -87,12 +144,12 @@ def write_run_command(file, oneBeam, myene, cosTh):
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=1:00:00
+#SBATCH --time=1:20:00
 
 cp {runCode}.source {new_working_dir}
 cd {new_working_dir}
 cosima -s 120 -v 0 {path_to_run_code}.source
-python gamma_TPC_response.py {runCode}.inc1.id1.sim
+python gamma_TPC_response.py {runCode}.inc1.id1.sim {STUDY} {num_of_hits_to_rec}
 
 mv recon_{runCode}.inc1.id1.pkl {cur_dir}
 mv {runCode}_summary.pickle {cur_dir}
