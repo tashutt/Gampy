@@ -187,7 +187,7 @@ def apply_detector_response(events):
     measured_hits['cell'] = copy.copy(events.truth_hits['cell'][triggered])
     measured_hits['cell_index'] = copy.copy(events.truth_hits['cell_index'][triggered])
     # interaction_type
-    measured_hits['interaction_type'] = copy.copy(events.truth['interaction_type'][triggered])
+    measured_hits['interaction_type'] = copy.copy(events.truth_hits['interaction_type'][triggered])
             
 
     #   Measured light from ACD

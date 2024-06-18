@@ -301,10 +301,14 @@ def reconstruct(events,
         data[hit_len]['truth_correct_order']   = first3_good.all(axis=1)
         data[hit_len]['truth_angle12']         = truth_angle12
         data[hit_len]['truth_calorimeter_first3'] = events.truth.calorimeter_in_first_3[hit_len_mask&outside_mask]
-    
+
+
+        i_type = events_to_reconstruct['_interaction_type'][hit_len_mask&outside_mask]
+        data[hit_len]['truth_pair_first2'] = (i_type[:,1] == 2)
+        
         this = data[hit_len]
         bad_events = ( this['truth_escaped_energy'] 
-                      | this['truth_calorimeter_first3'])
+                     | this['truth_calorimeter_first3'])
         
         correct_order = this['truth_correct_order']
     
