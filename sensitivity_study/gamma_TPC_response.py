@@ -21,6 +21,7 @@ sys.path.append('tools')
 import events_tools
 import params_tools
 
+
 sim_file_name         = args.sim_file_name
 STUDY                 = args.study
 N_hits_to_reconstruct = args.N_hits_to_reconstruct
@@ -29,13 +30,17 @@ N_hits_to_reconstruct = args.N_hits_to_reconstruct
 try:
     in_energy = float(sim_file_name.split('_')[1].strip('MeV')) * 1000
     in_angle  = float(sim_file_name.split('_')[2].strip('Cos').replace('.inc1.id1.sim', ''))
+    print('Energy, Angle:', in_energy, in_angle)
+
 except:
     in_energy = 1000
     in_angle = 1.0
-    in_time = float(sim_file_name.split('background_')[1].replace('.sim', ''))
-    print("Time", in_time) 
+    parts = sim_file_name.split('_')
+    in_time = float(parts[1])
+    min_energy = float(parts[3].strip("minEnergy").replace('.sim', ''))
+    print("Time:", in_time)
+    print("Min Energy:", min_energy)
 
-print('Energy, Angle:', in_energy, in_angle)
 
 sim_file_name = sim_file_name.strip('.sim')
 
@@ -135,8 +140,11 @@ with open(os.path.join(f"{sim_file_name.split(".inc")[0]}_summary.pickle"), 'wb'
 events.truth = truth[mask]    
 events.truth_hits = hits[mask]
 
+# DETECTOR RESPONSE
 events.apply_detector_response()
 
+
+# RECONSTRUCTION
 in_vector = np.array([-np.sqrt(1-in_angle**2), 0, -in_angle])
 
 # a list starting with 3 and ending with N_hits_to_reconstruct
@@ -147,9 +155,8 @@ events.reconstruct_events(IN_VECTOR=in_vector,
 
 
 
-
+# CLASSIFICATION
 # events.train_classifier_on_self()
-
 # events.classify_reconstructed_events(save_name=sim_file_name)
 
 

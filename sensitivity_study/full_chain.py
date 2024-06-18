@@ -32,7 +32,7 @@ parser.add_argument('--R_analysis', type=float, default=np.sqrt(2.0/np.pi), help
 parser.add_argument('-only_photons', action='store_true', default=True, help='Only have photons as sources')
 parser.add_argument('-recompute_activation', action='store_true', default=False, help='Recompute the activation. Important for adding more materials')
 parser.add_argument('--activation_file_name', type=str, default=None, help='Name of the activation file. Default None.')
-parser.add_argument("--eng", type=str, default='2-8', help="Specify an energy range in keV, 'start-end', default 2-8")
+parser.add_argument("--min_energy", type=int, default=160, help="Specify minimal energy in keV. Max is set to 20 MeV")
 parser.add_argument('--alt', type=int, default=550, help="Altitude in km. Default 550.")
 parser.add_argument('--inc', type=int, default=0, help="Inclination in degrees. Default 0.")
 
@@ -80,8 +80,13 @@ paths['data'] = os.path.join(paths['root'], 'data')
 num_events = args.events
 inc = args.inc
 alt = args.alt
-energy_low = int(args.eng.split('-')[0])
-energy_high = int(args.eng.split('-')[-1])
+energy_low = int(args.min_energy)
+energy_high = 20_000 # keV or 20MeV
+
+# log10 of the energy
+energy_low_power  = np.log10(energy_low)
+energy_high_power = np.log10(energy_high)
+
 only_photons = bool(args.only_photons)
 
 if os.path.exists(paths['root']):    
@@ -152,8 +157,8 @@ source_file_path =  cosmic_flux_gen.generate_cosmic_simulation(
                                             geo_file_name, 
                                             Inclination=inc, 
                                             Altitude=alt, 
-                                            Elow=energy_low, 
-                                            Ehigh=energy_high, 
+                                            Elow=energy_low_power, 
+                                            Ehigh=energy_high_power, 
                                             num_triggers=num_events, 
                                             output_dir=paths['root'],
                                             only_photons=only_photons)
@@ -175,13 +180,16 @@ useful_output = cosima_output.split("Summary for run SpaceSim")[-1]
 #-------
 sim_particle_numbers = {}
 for line in useful_output.split('\n'):
-    if ":" in line:
-        k,v = line.split(": ")
-        if "." in v:
-            sim_particle_numbers[k.strip()]=float(v.strip("sec").strip())
-        else:
-            sim_particle_numbers[k.strip()]=int(v.strip())
-                
+    try:
+        if ":" in line:
+            k,v = line.split(": ")
+            if "." in v:
+                sim_particle_numbers[k.strip()]=float(v.strip("sec").strip())
+            else:
+                sim_particle_numbers[k.strip()]=int(v.strip())
+    except:
+        print(f"Error: {line}")
+        
                  
 print(useful_output,'\n\n\n\n-----------')
 inc_id_tag = ".inc1.id1"
@@ -211,23 +219,23 @@ if args.activation:
                                         activation=True,  # Set activation to True
                                         Inclination=inc, 
                                         Altitude=alt, 
-                                        Elow=energy_low, 
-                                        Ehigh=energy_high, 
+                                        Elow=energy_low_power, 
+                                        Ehigh=energy_high_power, 
                                         duration=0.1, 
                                         output_dir=paths['root'])
         step_2 = cosmic_flux_gen.calculate_activation(
                                         geo_file_name, 
                                         Inclination=inc, 
                                         Altitude=alt, 
-                                        Elow=energy_low, 
-                                        Ehigh=energy_high, 
+                                        Elow=energy_low_power, 
+                                        Ehigh=energy_high_power, 
                                         output_dir=paths['root'])
     step_3 = cosmic_flux_gen.activation_events(
                                     geo_file_name, 
                                     Inclination=inc, 
                                     Altitude=alt, 
-                                    Elow=energy_low, 
-                                    Ehigh=energy_high, 
+                                    Elow=energy_low_power, 
+                                    Ehigh=energy_high_power, 
                                     duration=sim_time, 
                                     output_dir=paths['root'],
                                     dat_name = activation_file_name)
@@ -249,7 +257,7 @@ if args.activation:
     else:
         if activation_file_name is None:
             print(" *** WARNING: activation_file_name is None. Using default. ***")
-            activation_file_name = f'ActivationFor{alt}km_{energy_low}to{energy_high}keV.dat'
+            activation_file_name = f'ActivationFor{alt}km_{int(energy_low_power)}to{int(energy_high_power)}keV.dat'
         #chack if the file exists
         elif not os.path.exists(f'{activation_file_name}'):
             if not os.path.exists(f'../cosmic_flux/Data/{activation_file_name}'):
@@ -312,8 +320,12 @@ print(f"Analyzing {sim_file_name}")
 ################## ANALYSIS ####################
 in_energy = 1000 # fake numbers, no need
 in_angle = 1.0
-in_time = float(sim_file_name.split('background_')[1].replace('.sim', ''))
-print("Time", in_time) 
+
+parts = sim_file_name.split('_')
+in_time = float(parts[1])
+
+# Print the extracted values
+print("Time:", in_time)
 print('Energy, Angle:', in_energy, in_angle)
 
 sim_file_name = sim_file_name.strip('.sim')
