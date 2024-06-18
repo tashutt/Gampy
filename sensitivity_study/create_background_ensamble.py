@@ -10,6 +10,7 @@ min_energy = 200
 max_energy = 8000
 events_in_run = 100_000
 
+
 STUDY = "Nominal"
 R_analysis = np.sqrt(2.0 / np.pi)  # 2 m2 active area
 activation_file_name = "ActivationForCsI_10cm_1.5_v4.dat"
@@ -17,6 +18,7 @@ activation_file_name = "ActivationForCsI_10cm_1.5_v4.dat"
 # Directories
 sister_dir = "/sdf/scratch/kipac/MeV/gammatpc"
 cur_dir = os.getcwd()
+
 name_of_current_dir = os.path.basename(cur_dir)
 new_working_dir = os.path.join(sister_dir, name_of_current_dir)
 
@@ -31,6 +33,7 @@ def write_run_command(file, i, energy, events):
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G
+
 #SBATCH --time=0:59:00
 
 cd {new_working_dir}
@@ -40,6 +43,7 @@ mv */*.pkl {cur_dir}
 cd {cur_dir}
 """
     file.write(pre)
+
 
 # Generate job scripts and submit them
 for i in range(how_many_runs):

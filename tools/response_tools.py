@@ -186,6 +186,8 @@ def apply_detector_response(events):
     #   alive and cell info copied from measured_hits.
     measured_hits['cell'] = copy.copy(events.truth_hits['cell'][triggered])
     measured_hits['cell_index'] = copy.copy(events.truth_hits['cell_index'][triggered])
+    # interaction_type
+    measured_hits['interaction_type'] = copy.copy(events.truth['interaction_type'][triggered])
             
 
     #   Measured light from ACD
@@ -211,9 +213,9 @@ def apply_detector_response(events):
     measured_hits['s_secondary'] = measured_hits['a'][r_mask][good_mask]
     
 
-    measured_hits['time']   = events.truth['time'][good_mask]
+    measured_hits['time']         = events.truth['time'][good_mask]
     measured_hits['triggered_id'] = events.truth['triggered_id'][good_mask]
-    measured_hits['cell']   = measured_hits['cell'][good_mask]
+    measured_hits['cell']         = measured_hits['cell'][good_mask]
     measured_hits['quanta_q']     = measured_hits['quanta_q'][good_maskT]
     measured_hits['total_energy'] = measured_hits['total_energy'][good_mask]
     measured_hits['cell_index']   = measured_hits['cell_index'][good_mask]
@@ -221,6 +223,7 @@ def apply_detector_response(events):
     measured_hits['ACD_activated'] = acd_activated[good_mask]
     measured_hits['calorimeter_energy'] = measured_hits['calorimeter_energy'][good_mask]
 
+    measured_hits['_interaction_type'] = measured_hits['interaction_type'][good_mask]
     measured_hits['_good_mask']   = good_mask
     measured_hits['_bad_mask']    = ~good_mask
 

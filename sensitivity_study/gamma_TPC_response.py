@@ -21,6 +21,7 @@ sys.path.append('tools')
 import events_tools
 import params_tools
 
+
 sim_file_name         = args.sim_file_name
 STUDY                 = args.study
 N_hits_to_reconstruct = args.N_hits_to_reconstruct
@@ -145,11 +146,13 @@ events.apply_detector_response()
 
 # RECONSTRUCTION
 in_vector = np.array([-np.sqrt(1-in_angle**2), 0, -in_angle])
+
 # a list starting with 3 and ending with N_hits_to_reconstruct
 HIT_LIST = [i for i in range(3, N_hits_to_reconstruct)]
 events.reconstruct_events(IN_VECTOR=in_vector,
                           save_name=sim_file_name,
                           LEN_OF_CKD_HITS = HIT_LIST)
+
 
 
 # CLASSIFICATION

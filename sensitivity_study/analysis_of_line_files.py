@@ -36,10 +36,12 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from scipy.optimize import curve_fit
 import pickle
 
+
 # if a_combined_classifier.pkl exists, then TRAIN_MODEL = False
 # otherwise, TRAIN_MODEL = True
 
 TRAIN_MODEL = not os.path.exists('a_combined_classifier.pkl')
+
 
 
 plt.rcParams.update({'font.size': 18, 
