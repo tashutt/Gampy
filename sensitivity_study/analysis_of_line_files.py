@@ -21,6 +21,7 @@
 #   - an_energy_resolution%.png: the energy resolution as a function of energy in percent
 #   - an_efficiency.png:         the efficiency and acceptance as a function of energy and angle
 #   - energy_hist_*.png:         the energy histogram for each energy and angle
+#   - num_of_hits_*.png:         the number of hits histogram for each energy
 
 
 #%%
@@ -36,12 +37,10 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from scipy.optimize import curve_fit
 import pickle
 
-
 # if a_combined_classifier.pkl exists, then TRAIN_MODEL = False
 # otherwise, TRAIN_MODEL = True
 
 TRAIN_MODEL = not os.path.exists('a_combined_classifier.pkl')
-
 
 
 plt.rcParams.update({'font.size': 18, 
@@ -476,3 +475,104 @@ plt.savefig('plots/an_efficiency.png')
 plt.close()
 
 # %%
+
+# 'best_e_out_order', 'e_out_CKD', 'energy_from_sum', 'mean_CKD',
+# 'min_hit_distance', 'first_arm_len', 'kn_probability',
+# 'calculated_energy', 'calc_to_sum_ene', 'calorimeter_energy',
+# 'num_of_hits', 'compton_angle', 'psi_angle', 'xsi_angle', 'phi_e',
+# 'theta_e', 'delta_e_direction', 'beta_angle', 'ARM', 'ARMc',
+
+# 'truth_lost_in_passive', 'truth_escaped_energy', 'truth_correct_order',
+# 'truth_angle12', 'truth_calorimeter_first3', 'truth_event_id',
+# 'truth_good_events_p', 'truth_correct_order_p', 'in_energy',
+# 'in_angle'
+
+# create a new dataframe with in_angle == 1 and assign use 
+
+df = pd.read_pickle('analysis_combined.pkl')
+df = df.dropna(subset=features)
+X = df[features]
+y = classifier.predict(X)
+df['use'] = y
+
+# add truth_wrong_order
+df['truth_wrong_order'] = (df['truth_correct_order'] == False).astype(int)
+
+
+df['good'] = ( (df['truth_escaped_energy'] == False)
+            & (df['truth_wrong_order']  == False)
+            & (df['truth_calorimeter_first3'] == False)).astype(int)
+
+dfc = df.query('in_angle == 1')
+
+# %%
+
+for energy_filter in dfc.in_energy.unique(): 
+    dfcr = dfc.query('in_energy == @energy_filter')
+    summary_truth = (summary_df.query(f'energy == {energy_filter}')
+                    .truth_hit_distribution
+                    .values[0])[:16]
+    
+    summary_meas  = (summary_df.query(f'energy == {energy_filter}')
+                    .measured_hit_distribution
+                    .values[0])[:16]
+
+    energy_threshold = 0.97 * energy_filter
+    # Analysis to identify causes of bad events
+    bad_events = dfcr[dfcr['good'] == 0]
+    escaped_energy = bad_events.query('truth_escaped_energy == True')
+    missing_energy = bad_events.query('energy_from_sum < @energy_threshold')
+    wrong_order = bad_events.query('truth_wrong_order == True')
+    calorimeter_first3 = bad_events.query('truth_calorimeter_first3 == True')
+
+    # Define bins for histogram
+    bins = np.arange(0, 12)
+    # plot summary_data as a histogram for comparison
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(10, 7))
+    ax.step(np.arange(len(summary_truth)),summary_truth, alpha=0.6, color='grey', 
+            label='Truth Events', where='mid')
+
+    ax.step(np.arange(len(summary_meas)),summary_meas, alpha=0.6, color='red', 
+            label='Measured Events', where='mid')
+    
+    # Plot histogram for good events
+    hist_good, _ = np.histogram(dfcr.num_of_hits, bins=bins)
+    ax.bar(bins[:-1], hist_good, width=0.7, label='All Events', color='grey', alpha=0.6, align='center')
+
+    # Plot line for bad events
+    hist_bad, _ = np.histogram(bad_events.num_of_hits, bins=bins)
+    ax.step(bins[:-1], hist_bad, label='Bad', color='black', alpha=0.8, 
+            linewidth=2, linestyle='--', marker='o',where='mid')
+
+    # Plot stacked bars for specific causes of bad events
+    hist_escaped_energy, _ = np.histogram(missing_energy.num_of_hits, bins=bins)
+    ax.bar(bins[:-1], hist_escaped_energy, width=0.7, label='Escaped Energy', color='red', 
+           alpha=0.5, align='center')
+
+    hist_wrong_order, _ = np.histogram(wrong_order.num_of_hits, bins=bins)
+    ax.bar(bins[:-1], hist_wrong_order, width=0.4, label='Wrong Order', color='blue', 
+           alpha=0.5, align='edge')
+
+    hist_calorimeter_first3, _ = np.histogram(calorimeter_first3.num_of_hits, bins=bins)
+    ax.bar(bins[:-1], hist_calorimeter_first3, width=0.7, label='Calorimeter First 3', color='green', alpha=0.5, align='center')
+
+    # Customize plot
+    ax.set_xlabel('Number of Hits', fontsize=14)
+    ax.set_ylabel('Number of Events', fontsize=14)
+    ax.set_title(f'Number of Hits vs Bad Events for energy={energy_filter} keV', fontsize=16)
+    ax.legend(fontsize=12)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    plt.xticks(bins[:-1])
+    # ylim 12000
+    ax.set_ylim(0, 12000)
+
+    plt.tight_layout()
+    plt.savefig(f'plots/num_of_hits_{energy_filter}.png')
+    plt.show()
+
+#%%
+
+
+
