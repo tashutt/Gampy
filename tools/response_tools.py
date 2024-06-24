@@ -71,10 +71,12 @@ def apply_detector_response(events):
 
     print('Applying detector response',
           events.params.coarse_grids['signal_fraction'], "Signal Fraction")
+    
 
     #   Calculate detector params
     events.params.calculate()
-
+    ang_unc_multiplier = events.params.track_direction_error_multiplier
+    
     #   Measured hits is a dictionary
     measured_hits = {}
 
@@ -171,7 +173,8 @@ def apply_detector_response(events):
     measured_hits['r'] = smear_space(events.truth_hits['r'], events.params, events.truth_hits['energy'])
     measured_hits['a'] = smear_angle(events.truth_hits['s_secondary'], 
                                      measured_hits['r'],
-                                     measured_hits['energy'])
+                                     measured_hits['energy'],
+                                     err_multiplier=ang_unc_multiplier)
     
     measured_hits['a_uncertainty'] = angle_error_uncertainty(measured_hits['energy'], 
                                                              events.truth_hits['r'][:,2])
@@ -506,7 +509,7 @@ def angle_error_uncertainty(energy, drift):
 
 
 
-def smear_angle(s, Z=[],E=[]):
+def smear_angle(s, Z=[],E=[], err_multiplier=1):
     """
     Smears the angle of the hit
     """
@@ -527,7 +530,7 @@ def smear_angle(s, Z=[],E=[]):
     z_cell[up] = 0.36 - z[up]
     z_cell[down] = z[down]
 
-    STD = angle_error(e, z_cell) / 1.73
+    STD = angle_error(e, z_cell) / 1.73 * err_multiplier
     sign = np.random.choice([1, -1], rand_len)
 
     sx = s[:,0] + ak.unflatten(STD*sign, toShape, axis=0)
