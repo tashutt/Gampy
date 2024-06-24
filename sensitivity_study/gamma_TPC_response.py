@@ -94,7 +94,7 @@ if STUDY == "Optimistic":
     events.params.inputs['light']['collection'] = 0.3
     events.params.inputs['material']['sigma_p'] = 0.04
     events.params.inputs['coarse_grids']['noise'] = 10
-    events.params.inputs['track_direction_error_multiplier'] = 0.8
+    events.params.inputs['spatial_resolution']['track_direction_error_multiplier'] = 0.8
 
 elif STUDY == "Nominal":
     events.params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
@@ -102,7 +102,7 @@ elif STUDY == "Nominal":
     events.params.inputs['light']['collection'] = 0.1
     events.params.inputs['material']['sigma_p'] = 0.05
     events.params.inputs['coarse_grids']['noise'] = 20
-    events.params.inputs['track_direction_error_multiplier'] = 1
+    events.params.inputs['spatial_resolution']['track_direction_error_multiplier'] = 1
 
 elif STUDY == "Pessimistic":
     events.params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
@@ -110,7 +110,7 @@ elif STUDY == "Pessimistic":
     events.params.inputs['light']['collection'] = 0.05
     events.params.inputs['material']['sigma_p'] = 0.06
     events.params.inputs['coarse_grids']['noise'] = 40
-    events.params.inputs['track_direction_error_multiplier'] = 1.2
+    events.params.inputs['spatial_resolution']['track_direction_error_multiplier'] = 1.2
 
 events.params.calculate()
 
@@ -118,7 +118,7 @@ truth = events.truth
 hits  = events.truth_hits 
 
 # 2 m2 detector
-R_max = np.sqrt(2/np.pi)
+R_max = np.sqrt(2/np.pi)/5
 len_mask = ak.num(hits.r[:, 0]) > 0
 R = np.linalg.norm(hits[len_mask].r[:, :2, 0],axis=1)
 mask = np.zeros(len(truth), dtype=bool)
@@ -127,8 +127,19 @@ mask[len_mask] = R < R_max
 print("Masking events", len(truth), "to", sum(mask), 
       f"for R < {R_max:.3f} m. That's {sum(mask)/len(truth)*100:.2f}% of the events.")
 
-num_hits = truth[mask]['num_hits']
-hit_dist = np.bincount(num_hits, minlength=max(num_hits)+1)
+events.truth = truth[mask]    
+events.truth_hits = hits[mask]
+
+
+# DETECTOR RESPONSE
+events.apply_detector_response()
+
+# SAVE SUMMARY
+truth_num_hits = truth[mask]['num_hits']
+truth_hit_dist = np.bincount(truth_num_hits, minlength=max(truth_num_hits)+1)
+
+meas_num_hits = ak.num(events.measured_hits['energy'])
+meas_hit_dist = np.bincount(meas_num_hits, minlength=max(truth_num_hits)+1)
 
 summary_dict = {
     "energy": in_energy,
@@ -138,17 +149,12 @@ summary_dict = {
     "study": STUDY,
     "r_max": R_max,
     "N_hits_to_reconstruct": N_hits_to_reconstruct,
-    "hit_distribution": list(hit_dist)}
+    "truth_hit_distribution": list(truth_hit_dist),
+    "measured_hit_distribution": list(meas_hit_dist)}
+
 
 with open(os.path.join(f"{sim_file_name.split(".inc")[0]}_summary.pickle"), 'wb') as f:
     pickle.dump(summary_dict, f)
-
-events.truth = truth[mask]    
-events.truth_hits = hits[mask]
-
-# DETECTOR RESPONSE
-events.apply_detector_response()
-
 
 # RECONSTRUCTION
 in_vector = np.array([-np.sqrt(1-in_angle**2), 0, -in_angle])
