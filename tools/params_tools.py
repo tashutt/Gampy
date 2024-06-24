@@ -94,8 +94,7 @@ def default_response_inputs(charge_readout):
     inputs['spatial_resolution'] = {}
     inputs['spatial_resolution']['sigma_xy'] = 0.5e-3
     inputs['spatial_resolution']['sigma_z'] = 0.5e-3
-
-    inputs['track_direction_error_multiplier'] = 1
+    inputs['spatial_resolution']['track_direction_error_multiplier'] = 1
 
     #   Simple energy resolution - should retire.  Currently
     #   I think just

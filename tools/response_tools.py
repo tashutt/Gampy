@@ -75,7 +75,7 @@ def apply_detector_response(events):
 
     #   Calculate detector params
     events.params.calculate()
-    ang_unc_multiplier = events.params.track_direction_error_multiplier
+    ang_unc_multiplier = events.params.spatial_resolution['track_direction_error_multiplier']
     
     #   Measured hits is a dictionary
     measured_hits = {}
