@@ -36,7 +36,7 @@ def generate_cosmic_simulation(geo_full_file_name,
 
 
     # Set the source file name based on whether it's for activation or not
-    source_file_name = f"{'Activation' if activation else 'Simulation'}Step1For{Altitude}km_{Elow}to{Ehigh}keV.source"
+    source_file_name = f"{'Activation' if activation else 'Simulation'}Step1For{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV.source"
     
     lines = ['']
     lines.append('Version          1 \n')
@@ -106,7 +106,7 @@ def generate_cosmic_simulation(geo_full_file_name,
     if output_dir is None:
         output_dir = os.getcwd()
 
-    dat_name = f"For{Altitude}km_{Elow}to{Ehigh}keV"
+    dat_name = f"For{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV"
     output_folder = os.path.join(output_dir, dat_name)
 
     # Create the output folder if it doesn't exist
@@ -191,7 +191,7 @@ def generate_cosmic_simulation(geo_full_file_name,
 
 def calculate_activation(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, Ehigh=8, duration=31556736, output_dir=None):
     
-    source_file_name2 = f"ActivationStep2For{Altitude}km_{Elow}to{Ehigh}keV.source"
+    source_file_name2 = f"ActivationStep2For{Altitude}km_km_{int(10**Elow)}to{int(10**Ehigh)}keV.source"
 
     lines = ['']
     lines.append('Version          1 \n')
@@ -205,14 +205,14 @@ def calculate_activation(geo_full_file_name, Inclination=0, Altitude=550, Elow=1
                  + 'Isotopes.inc1.dat' + '\n')
     lines.append('A.ActivationMode          '
                  + 'ConstantIrradiation  ' + f'{duration} ' + '\n')
-    lines.append(f'A.ActivationFile          ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat')
+    lines.append(f'A.ActivationFile          ActivationFor{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV.dat')
     lines.append('\n')
     lines.append('\n')
     
     if output_dir is None:
         output_dir = os.getcwd()
 
-    dat_name = f"For{Altitude}km_{Elow}to{Ehigh}keV"
+    dat_name = f"For{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV"
     output_folder = os.path.join(output_dir, dat_name)
 
     # Create the output folder if it doesn't exist
@@ -231,7 +231,7 @@ def calculate_activation(geo_full_file_name, Inclination=0, Altitude=550, Elow=1
 
 def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, Ehigh=8, duration=31556736, output_dir=None, dat_name=None):
     
-    source_file_name3 = f"ActivationStep3For{Altitude}km_{Elow}to{Ehigh}keV.source"
+    source_file_name3 = f"ActivationStep3For{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV.source"
     
     lines = ['']
     lines.append('Version          1 \n')
@@ -247,10 +247,10 @@ def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, E
 
     lines.append('Run ActivationStep3\n')
 
-    lines.append(f'ActivationStep3.FileName                         ActivationStep3For{Altitude}km_{Elow}to{Ehigh}keV\n')
+    lines.append(f'ActivationStep3.FileName                         ActivationStep3For{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV\n')
     lines.append('ActivationStep3.Time          ' + f'{duration} ' + '\n')
     if dat_name is None:
-        lines.append(f'ActivationStep3.ActivationSources          ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat')
+        lines.append(f'ActivationStep3.ActivationSources          ActivationFor{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV.dat')
     else:
         lines.append(f'ActivationStep3.ActivationSources          {dat_name}' )
         
@@ -260,7 +260,7 @@ def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, E
     if output_dir is None:
         output_dir = os.getcwd()
 
-    dat_name = f"For{Altitude}km_{Elow}to{Ehigh}keV"
+    dat_name = f"For{Altitude}km_{int(10**Elow)}to{int(10**Ehigh)}keV"
     output_folder = os.path.join(output_dir, dat_name)
 
     # Create the output folder if it doesn't exist
