@@ -94,6 +94,7 @@ if STUDY == "Optimistic":
     events.params.inputs['light']['collection'] = 0.3
     events.params.inputs['material']['sigma_p'] = 0.04
     events.params.inputs['coarse_grids']['noise'] = 10
+    events.params.inputs['track_direction_error_multiplier'] = 0.8
 
 elif STUDY == "Nominal":
     events.params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
@@ -101,6 +102,7 @@ elif STUDY == "Nominal":
     events.params.inputs['light']['collection'] = 0.1
     events.params.inputs['material']['sigma_p'] = 0.05
     events.params.inputs['coarse_grids']['noise'] = 20
+    events.params.inputs['track_direction_error_multiplier'] = 1
 
 elif STUDY == "Pessimistic":
     events.params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
@@ -108,6 +110,7 @@ elif STUDY == "Pessimistic":
     events.params.inputs['light']['collection'] = 0.05
     events.params.inputs['material']['sigma_p'] = 0.06
     events.params.inputs['coarse_grids']['noise'] = 40
+    events.params.inputs['track_direction_error_multiplier'] = 1.2
 
 events.params.calculate()
 
