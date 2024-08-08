@@ -85,12 +85,12 @@ def calculate_geomega_geometry_v1(params):
     #   Generate cell array, either for hexagonal or rectangular cells.
     if params.cells['geometry']=='hexagonal':
         centers, corners = make_honeycomb(
-            params.cells['flat_to_flat'],
+            params.cells['width'],
             params.vessel['r_outer'] - params.vessel['lar_min_radial_gap']
             )
     elif params.cells['geometry']=='rectangular':
         centers, corners = make_square_array(
-            params.cells['flat_to_flat'],
+            params.cells['width'],
             params.vessel['r_outer'] - params.vessel['lar_min_radial_gap']
             )
     else:
@@ -126,8 +126,8 @@ def calculate_geomega_geometry_v1(params):
     #   Cell dimensions in x, y
     if params.cells['geometry']=='hexagonal':
         params.cells['corner_to_corner'] \
-            = params.cells['flat_to_flat'] * 2 / math.sqrt(3)
-        params.cells['width_xo'] = params.cells['flat_to_flat']
+            = params.cells['width'] * 2 / math.sqrt(3)
+        params.cells['width_xo'] = params.cells['width']
         params.cells['width_yo'] = params.cells['corner_to_corner']
         params.cells['width_xi'] \
             = params.cells['width_xo'] \
@@ -137,11 +137,11 @@ def calculate_geomega_geometry_v1(params):
                 - params.cells['wall_thickness'] * math.sqrt(3) / 2 / 2
         params.cells['rotation'] = 30.
         params.cells['wall_length'] \
-            = params.cells['flat_to_flat'] / math.sqrt(3)
+            = params.cells['width'] / math.sqrt(3)
         params.cells['area'] \
-            = 2 * math.sqrt(3) * (params.cells['flat_to_flat'] /2 )**2
+            = 2 * math.sqrt(3) * (params.cells['width'] /2 )**2
     elif params.cells['geometry']=='rectangular':
-        params.cells['width_xo'] = params.cells['flat_to_flat']
+        params.cells['width_xo'] = params.cells['width']
         params.cells['width_xi'] \
             = params.cells['width_xo'] \
                 - params.cells['wall_thickness'] / 2
@@ -189,9 +189,9 @@ def calculate_geomega_geometry_v1(params):
         = params.vessel['height'] \
             - 2 * params.vessel['wall_thickness']
 
-    # cell_corner_to_corner = params.cells['flat_to_flat'] * math.sqrt(3)/ 2
+    # cell_corner_to_corner = params.cells['width'] * math.sqrt(3)/ 2
 
-    cell_flat_to_flat_inner = params.cells['flat_to_flat'] \
+    cell_width_inner = params.cells['width'] \
         - params.cells['wall_thickness']
 
     #%%  Generate geomega file lines
@@ -242,10 +242,10 @@ def calculate_geomega_geometry_v1(params):
         + ' 2 '
         + f'{params.cells["height"]/2*100:10.7f} '
         + '0. '
-        + f'{cell_flat_to_flat_inner/2*100:10.7f} '
+        + f'{cell_width_inner/2*100:10.7f} '
         + f'{-params.cells["height"]*100/2:10.7f} '
         + '0. '
-        + f'{cell_flat_to_flat_inner/2*100:10.7f} '
+        + f'{cell_width_inner/2*100:10.7f} '
         + '\n'
         )
     lines.append('BaseTPCCell.Color 9\n')
@@ -270,9 +270,9 @@ def calculate_geomega_geometry_v1(params):
     lines.append('\n')
 
     # Outer ACD cylinder
-    # outer_act_thickness = params.acd["thickness"]
-    #   TODO:  remove this kludge
-    outer_act_thickness = 0.02
+    # outer_acd_thickness = params.acd["thickness"]
+    #   TODO:  remove this kludge - put in params
+    outer_acd_thickness = 0.02
     calAndShield =( 0* params.calorimeter["thickness"]
                 +  params.shield["thickness"]
                 )
@@ -283,14 +283,15 @@ def calculate_geomega_geometry_v1(params):
         'OuterACD.Shape TUBE '
         + f'{vessel_r_inner*100:10.7f} ' # inner radius
         + ' '
-        + f'{(vessel_r_inner + outer_act_thickness)*100:10.7f}'  # Outer radius (inner + thickness)
+        + f'{(vessel_r_inner + outer_acd_thickness)*100:10.7f}'
         + ' '
         + f'{(params.vessel["height"]/2 + calAndShield/2)*100:10.7f} '
         + '0. '
         + '360.'
         + '\n'
     )
-    lines.append(f'OuterACD.Position 0.0 0.0 {(params.vessel["height"]/2 - calAndShield)*100:10.7f}\n')
+    lines.append('OuterACD.Position 0.0 0.0 '
+                 + f'{(params.vessel["height"]/2 - calAndShield)*100:10.7f}\n')
     lines.append('OuterACD.Color 15\n')
     lines.append('OuterACD.Mother WorldVolume\n\n')
 
@@ -310,7 +311,8 @@ def calculate_geomega_geometry_v1(params):
         + '360.'
         + '\n'
         )
-    lines.append(f'Vessel.Position 0.0 0.0 {(params.vessel["height"] / 2)*100:10.7f}\n')
+    lines.append('Vessel.Position 0.0 0.0 '
+                 + f'{(params.vessel["height"] / 2)*100:10.7f}\n')
     lines.append('Vessel.Color 14\n')
     lines.append('Vessel.Mother WorldVolume\n')
 
@@ -389,7 +391,7 @@ def calculate_geomega_geometry_v1(params):
         cell_lines = get_tpc_cell_line(
             nc + 1,
             params.cells['centers'][:, nc],
-            params.cell_geometry
+            params.cells['geometry'],
             )
         for cell_line in cell_lines:
             lines.append(cell_line)
@@ -461,7 +463,8 @@ def calculate_geomega_geometry_v1(params):
         lines.append('CsICal.EnergyResolution Gauss 661 661 12.43\n')
         lines.append('CsICal.DepthResolution 662 0.21\n')
         lines.append(
-            f'BaseCalorimeter.Position  0.0 0.0 {(-params.calorimeter["thickness"] / 2)*100:10.7f}\n'
+            'BaseCalorimeter.Position  0.0 0.0 '
+            + f'{(-params.calorimeter["thickness"] / 2)*100:10.7f}\n'
             )
         lines.append('BaseCalorimeter.Rotation   0. 0. 0.\n')
         lines.append('BaseCalorimeter.Mother     WorldVolume\n')
@@ -510,7 +513,7 @@ def calculate_geomega_geometry_v1(params):
 def make_honeycomb(cell_width, max_radius=1.75):
     """
     Returns array of honeycomb of cells that fit within max_radius,
-        with flat_to_flat oriented along x, corner_to_corner along y.
+        with flat-to-flat oriented along x, corner_to_corner along y.
 
         cell_width - flat-to-flat width
         max_radius - honeycomb covers points to this radius
@@ -660,10 +663,11 @@ def make_square_array(cell_width, max_radius=1.75):
 
     return centers, corners
 
-def init_simple_geometry(bounding_box):
+def init_simple_cell(bounding_box):
     """
-    Simple "detector" geometry with single rectangual cell
-    intended for use with tracks found in uniform fluid,
+    Simple "detector" geometry with single rectangular cell containing
+    bounding_box
+    Intended for use with tracks simulated in large uniform fluid,
     such as PENELOPE tracks.
 
     Note that this detector description does not include the readout.
@@ -770,15 +774,18 @@ def global_to_cell_coordinates(r_in, cell, params, reverse=False):
     if reverse:
         for i, val in enumerate(cell_mask):
             if val:
-                modified_x = r_in[i,0] + sign * ak.Array([x_o[cell[i] - 1]][0])
-                modified_y = r_in[i,1] + sign * ak.Array([y_o[cell[i] - 1]][0])
-                modified_z = r_in[i,2:] + sign * ak.Array([z_o[cell[i] - 1]][0])
+                modified_x = r_in[i,0] \
+                    + sign * ak.Array([x_o[cell[i] - 1]][0])
+                modified_y = r_in[i,1] \
+                    + sign * ak.Array([y_o[cell[i] - 1]][0])
+                modified_z = r_in[i,2:] \
+                    + sign * ak.Array([z_o[cell[i] - 1]][0])
 
                 # Perform rotation
-                temp_x = modified_x * np.cos(theta_rad) - modified_y * np.sin(
-                    theta_rad)
-                temp_y = modified_x * np.sin(theta_rad) + modified_y * np.cos(
-                    theta_rad)
+                temp_x = modified_x * np.cos(theta_rad) \
+                    - modified_y * np.sin(theta_rad)
+                temp_y = modified_x * np.sin(theta_rad) \
+                    + modified_y * np.cos(theta_rad)
             else:
                 temp_x = r_in[i, 0]
                 temp_y = r_in[i, 1]
@@ -823,24 +830,23 @@ def global_to_cell_coordinates(r_in, cell, params, reverse=False):
 
     return r_transformed
 
-def cell_to_tile_coordinates(
+def cell_to_chip_coordinates(
         r_in,
-        tile_indices,
-        tile_locations,
+        chip_indices,
+        chip_locations,
         reverse=False
         ):
     """
-    Translates r_in to r_out, between cell coordinates and "tile"
-        coordinates, where tiles are either pixel chips or
-        coarse tiles.
+    Translates r_in to r_out, between cell coordinates and
+        pixel chip coordinates.
 
     Default is from cell to pixel_chip; if reverse then is pixel_chip to cell
 
-    r_in - rray of locations, dimension [3, :] or [2, :].
-        The z coordinate, if present, is not affected.
-
-    tile_indices - array of indices of tiles for each entry in r_in
-
+    Inputs:
+        r_in - locations in cell coordates. Dimension [3, :] or [2, :].
+            The z coordinate, if present, is not affected.
+        chip_indices - array of indices of chips for each entry in r_in
+        chip_locations -
     pixel_chips is from params
 
     r_in is currenty on 2 dimensions [space, element]
@@ -853,22 +859,23 @@ def cell_to_tile_coordinates(
 
     r_out = copy.copy(r_in)
 
-    #   If one tile, transpose it
-    if tile_indices.ndim==1: tile_indices = tile_indices[:, None]
+    #   If one chip, transpose it
+    if chip_indices.ndim==1: chip_indices = chip_indices[:, None]
 
-    x_mesh, y_mesh = np.meshgrid(tile_locations[0], tile_locations[1])
-
-    tile_centers = np.zeros_like(tile_indices[0:2, :], dtype=float)
-    tile_centers[0, :] = x_mesh[tile_indices[1, :], tile_indices[0, :]]
-    tile_centers[1, :] = y_mesh[tile_indices[1, :], tile_indices[0, :]]
+    #   Create array of length of long dimension of r_in with
+    #   centers of chips for each entry in r_in
+    x_mesh, y_mesh = np.meshgrid(chip_locations[0], chip_locations[1])
+    chip_centers = np.zeros_like(chip_indices[0:2, :], dtype=float)
+    chip_centers[0, :] = x_mesh[chip_indices[1, :], chip_indices[0, :]]
+    chip_centers[1, :] = y_mesh[chip_indices[1, :], chip_indices[0, :]]
 
     #   Translate chip to cell: add the center(s)
     if reverse:
-        r_out[0:2, :] += tile_centers
+        r_out[0:2, :] += chip_centers
 
     #   Translate cell to chip: subtract the center(s)
     else:
-        r_out[0:2, :] -= tile_centers
+        r_out[0:2, :] -= chip_centers
 
     return r_out
 

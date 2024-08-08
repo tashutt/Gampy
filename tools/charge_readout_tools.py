@@ -20,19 +20,24 @@ TODO[ts]: Add cube method to flesh out pixel data for ML
 @author: tshutt
 """
 
-def readout_dual_scale_pixels(r, num_e, array_sensors, pixel_sensors,
-                        triggered_output=True, raw_output=True):
+def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
+                        triggered_output=True, raw_output=True,
+                        stats_output=False):
     """
-    Dual scale readout of pixels.  First finds which of a coarse array of
-        pixel chips have signal, then reads those chips using readout_pixels.
-        The coarse array is either a set of pixel chips triggered
-        (in principle but not yet in practice) by coarse grids,
-        or coarse tiles which each trigger a single chip.
+    Readout of fine scale pixels in a dual scale readout system.
+        Assumes each logical element of coarse_sensors corresponds
+        to a single corresonding single logical "chip" of fine scale pixels.
+        The readout of those pixels is done by readout_pixels.
+
+        This currently uses an idealized zero noise trigger for the summed
+        signal in each logical coarse voxel, and does not yet used
+        a trigger found separately from the coarse sensors.  The latter
+        is a signficantly simplification in the case of coarse wires.
 
     Input:
         r  - electron locations, dimension [0:2, :]
         num_e - number of electron at each entry of r
-        array_sensors - description of coarse_tiles or chip_array
+        coarse_sensors - description of coarse_tiles or chip_array
         pixel_sensors - descripotion of pixels
         triggered_output - if true, triggered samples returned
         raw_output - if true, all noisless samples with any charge returned
@@ -58,8 +63,8 @@ def readout_dual_scale_pixels(r, num_e, array_sensors, pixel_sensors,
 
     import geometry_tools
 
-    #   Find voxels containing data, using array_sensors
-    voxels = find_voxels(r, array_sensors)
+    #   Find coarse voxels defined by coarse_sensors that contain charge
+    voxels = find_voxels(r, coarse_sensors)
 
     #   Calculate pixels, looping over coarse voxels
     for n in range(voxels['voxel_indices'].shape[1]):
@@ -72,19 +77,19 @@ def readout_dual_scale_pixels(r, num_e, array_sensors, pixel_sensors,
             np.equal(voxels['charge_indices'], voxel_indices[:, None]),
             axis=0)
 
-        #   For these entries r, change to pixel tile coordinates
+        #   For these entries r, change to pixel chip coordinates
         #   (note the called routine does not alter the calling r)
-        r_chip = geometry_tools.cell_to_tile_coordinates(
+        r_chip = geometry_tools.cell_to_chip_coordinates(
             r[:, mask],
             voxel_indices[:, None],
-            array_sensors['centers']
+            coarse_sensors['centers']
             )
 
         #   Masked charge
         num_e_chip = num_e[mask]
 
         #   Focus electrons uniformly onto pixels
-        #   TODO: reveiw focus_factor.  Need to add defocussing
+        #   TODO: review focus_factor.  Need to add defocussing
         r_chip[0, :] = r_chip[0, :] * pixel_sensors['focus_factor']
         r_chip[1, :] = r_chip[1, :] * pixel_sensors['focus_factor']
 
@@ -95,24 +100,25 @@ def readout_dual_scale_pixels(r, num_e, array_sensors, pixel_sensors,
             pixel_sensors,
             voxels['z_edges'][voxel_indices[2] : voxel_indices[2] + 2],
             triggered_output=triggered_output,
-            raw_output=raw_output
+            raw_output=raw_output,
+            stats_output = stats_output,
             )
 
         #   Transform pixel centers back to cell coordinates
         if triggered_output:
             r_triggered_this_chip \
-                = geometry_tools.cell_to_tile_coordinates(
+                = geometry_tools.cell_to_chip_coordinates(
                     chip_samples['r_triggered'],
                     voxel_indices[:, None],
-                    array_sensors['centers'],
+                    coarse_sensors['centers'],
                     reverse=True
                     )
         if raw_output:
             r_raw_this_chip \
-                = geometry_tools.cell_to_tile_coordinates(
+                = geometry_tools.cell_to_chip_coordinates(
                     chip_samples['r_raw'],
                     voxel_indices[:, None],
-                    array_sensors['centers'],
+                    coarse_sensors['centers'],
                     reverse=True
                     )
 
@@ -157,8 +163,8 @@ def readout_dual_scale_pixels(r, num_e, array_sensors, pixel_sensors,
 
     return pixel_samples
 
-def readout_pixels(r, num_e, pixel_sensors, z_limits=None,
-                   triggered_output=True, raw_output=True):
+def readout_pixels(r, num_e, pixel_sensors, z_limits=None, raw_output=True,
+                   triggered_output=True, stats_output=False):
     """
     Reads out pixels, for two types of pixel_sensors which are
         functionally very similar:
@@ -172,8 +178,9 @@ def readout_pixels(r, num_e, pixel_sensors, z_limits=None,
         r  - electron locations, dimension [0:2, :]
         num_e - number of electron at each entry of r
         pixel_sensors - description of either pixels or coarse tiles
-        z_limits - lower and upper edges of z to be sampled.  Required
-            if pixel_sensors type is pixels, not used for coarse_tiles.
+        z_limits - Used for dual scale readout, array with lower and upper
+            edges in z of the coarse voxel being sampled.  If missing,
+            then span in z chosen to contain data.
         triggered_output - triggered pixels returned
         raw_output - all noisless pixels with any charge returned
 
@@ -215,22 +222,22 @@ def readout_pixels(r, num_e, pixel_sensors, z_limits=None,
     xy_centers = []
     first_index = []
     for n in range(2):
-        i_min, i_max = find_1d_span(r[n, :], pixel_sensors['edges'][n])
-        xy_edges.append(pixel_sensors['edges'][n][i_min : i_max + 1])
+        idx =  find_span(r[n, :], pixel_sensors['edges'][n])
+        xy_edges.append(pixel_sensors['edges'][n][idx])
         xy_centers.append(
             xy_edges[n][0:-1]
             + np.diff(xy_edges[n][0:2]) / 2
             )
-        first_index.append(i_min)
+        first_index.append(idx[0])
 
     #   Create z sampling.  Pixels don't fit normal pattern.
-    if pixel_sensors['type']=='pixels':
+    if z_limits is not None:
         num_z_samples = pixel_sensors['edges'][0].size
         z_edges = np.linspace(z_limits[0], z_limits[1], num_z_samples + 1)
-        i_min, i_max = find_1d_span(r[2, :], z_edges)
-        z_edges = z_edges[i_min : i_max + 1]
+        idx =  find_span(r[2, :], z_edges)
+        z_edges = z_edges[idx]
         z_centers = z_edges[0:-1] + np.diff(z_edges[0:2]) / 2
-    elif pixel_sensors['type']=='coarse_tiles':
+    else:
         z_edges, z_centers \
             = create_z_sampling(r[2, :], pixel_sensors['sampling_pitch'])
 
@@ -279,6 +286,13 @@ def readout_pixels(r, num_e, pixel_sensors, z_limits=None,
         r_raw[1, :] = locations_y[signal_mask]
         r_raw[2, :] = locations_z[signal_mask]
 
+    #   Stats output
+    if stats_output:
+        num_pixels_triggered = np.any(
+            samples_noisy > pixel_sensors['trigger_noise'],
+            axis=2
+            ).sum()
+
     #   Save output
     samples = {}
     if triggered_output:
@@ -287,11 +301,13 @@ def readout_pixels(r, num_e, pixel_sensors, z_limits=None,
     if raw_output:
         samples['samples_raw'] = samples_raw
         samples['r_raw'] = r_raw
+    if stats_output:
+        samples['num_pixels_triggered'] = num_pixels_triggered
     samples['z_edges'] = z_edges
 
     return samples
 
-def readout_coarse_grids(r, num_e, coarse_grid_sensors):
+def readout_coarse_grids(r, num_e, coarse_grid_sensors, stats_output=False):
     """
     Readout of tracks using coarse induction grids
 
@@ -301,25 +317,28 @@ def readout_coarse_grids(r, num_e, coarse_grid_sensors):
         coarse_grid_sensors - descripotion coarse grids
 
     Returned: coarse_grid_samples, with fields:
-        samples - samples on wires, with fields:
-            raw - signal with no noise, in all wires with signal
-            noisy - signal with noise, in all wirese with signal
-            triggered - noisy signal above single wire threshold
-        where - locations and indices of wires with signal, as follows:
-            locations - wire + z location for any signal.  array of
-                size [3, samples['raw'].size]
-            indices - indices of locations
-            triggered_locations - same as locations, but only for samples
-                above single wire threshold
-            triggered_indices - indices of triggered locations
+        samples - samples on wires, as list in x[0] and y[1] of arrays
+            of signals with fields:
+                raw - signal with no noise, in all wires with signal
+                noisy - signal with noise, in all wires with signal
+                triggered - noisy signal above single wire threshold
+        where - locations and indices of wires with signal.  Organized as
+            lists of lists in x-z, and y-z, i.e. [0][0] is x wires, [0][1]
+            is z for these x wires, and [1][:] is the same for y.
+            The fields are as follows:
+                locations - wire locations and centers of z samples.
+                indices - indices of locations
+                triggered_locations - same as locations, but only for samples
+                    above single wire threshold
+                triggered_indices - indices of triggered locations
         voxel_trigger - trigger for pixel chips, generated from coarse
             grid signals.  Voxel defined as 3d object of pixel chips
             in x,y, and bins in z. Fields:
-            trigger - array of triggered voxes.  array of shape [3, :]
-            z_centers_span - locations of z bin centers spanning
-                triggered voxels
-            z_edges_span - locations of z bin edges spanning
-                triggered voxels
+                trigger - array of triggered voxels.  array of shape [3, :]
+                z_centers_span - locations of z bin centers spanning
+                    triggered voxels
+                z_edges_span - locations of z bin edges spanning
+                    triggered voxels
 
     Readout is highly idealized - see below in code
 
@@ -344,16 +363,15 @@ def readout_coarse_grids(r, num_e, coarse_grid_sensors):
     xy_centers = []
     xy_indices = []
     for n in range(2):
-        i_min, i_max \
-            = find_1d_span(r[n, :], coarse_grid_sensors['centers'][n])
-        xy_centers.append(coarse_grid_sensors['centers'][n][i_min : i_max+1])
-        xy_indices.append(np.arange(i_min, i_max+1))
+        idx \
+            = find_span(r[n, :], coarse_grid_sensors['centers'][n])
+        xy_centers.append(coarse_grid_sensors['centers'][n][idx])
+        xy_indices.append(idx)
 
     #   Create z sampling
     z_edges, z_centers \
         = create_z_sampling(r[2, :], coarse_grid_sensors['pitch'])
     z_indices = np.arange(0, z_centers.size)
-
 
     #   Final output adds noise triggering.  Restrict output to wires
     #   with signal (or triggered).
@@ -497,6 +515,10 @@ def readout_coarse_grids(r, num_e, coarse_grid_sensors):
     voxel_trigger[1, :] = ciy[voxel_trigger_box]
     voxel_trigger[2, :] = ciz[voxel_trigger_box]
 
+    #   Find coarse voxels defined by coarse_sensors that contain charge
+    if stats_output:
+        voxels = find_voxels(r, coarse_grid_sensors)
+
     #   Package output
     coarse_grid_samples = {}
 
@@ -519,6 +541,9 @@ def readout_coarse_grids(r, num_e, coarse_grid_sensors):
         = z_centers
     coarse_grid_samples['voxel_trigger']['z_edges_span'] \
         = z_edges
+
+    if stats_output:
+        coarse_grid_samples['voxels'] = voxels
 
     return coarse_grid_samples
 
@@ -552,9 +577,8 @@ def readout_induction_grid_span(u, z, num_e, u_centers, z_edges):
         Currently has very crude and inaccurate treatment of sharing
         of signals between wires: signal between two wires contributes
         to each proportionally to distance, with correct integral.
-        The real signal is more complicated: bi-polar with small leading
-        negative signal, then positive signal with non-linear sharing
-        between wires and not full integral.
+        The real signal is more complicated: bi-polar, and strongly
+        position dependent, and does not preserve the integral.
         """
 
         #   Find bins for each charge - used in subsequent calculation
@@ -648,7 +672,7 @@ def readout_anode_grid(r, num_e, anode_grid_sensors):
     import numpy as np
 
     #   Find centers and edges that span data
-    ix_min, ix_max = find_1d_span(r[0, :], anode_grid_sensors['edges'])
+    ix_min, ix_max = find_span(r[0, :], anode_grid_sensors['edges'])
     x_edges = anode_grid_sensors['edges'][ix_min : ix_max + 1]
     x_centers = x_edges[0:-1] + np.diff(x_edges[0:2]) / 2
     x_indices = np.arange(ix_min, ix_max)
@@ -730,15 +754,16 @@ def readout_anode_grid(r, num_e, anode_grid_sensors):
 
     return anode_grid_samples
 
-def find_voxels(r, array_sensors):
+def find_voxels(r, coarse_sensors):
     """
     Finds indices of the voxels in which electrons in r reside.
-    array_sensors are pixel chips or coarse tiles.  The z pitch is set to the
-    tile pitch.
+    coarse_sensors are pixel chips or coarse tiles.  The z sampling is
+    generated here with pitch equal to the sensors.
+    The z sampling bins are returned.
 
     Input:
         r  - electron locations, dimension [0:2, :]
-        array_sensors - from params, either chip_array or coarse_tiles
+        coarse_sensors - from params, either chip_array or coarse_tiles
 
     Returned: xy_wire_output dictionary with these fields:
         voxels, with fields:
@@ -761,12 +786,12 @@ def find_voxels(r, array_sensors):
     xy_edges = []
     first_index = []
     for n in range(2):
-        i_min, i_max = find_1d_span(r[n, :], array_sensors['edges'][n])
-        xy_edges.append(array_sensors['edges'][n][i_min : i_max + 1])
-        first_index.append(i_min)
+        idx =  find_span(r[n, :], coarse_sensors['edges'][n])
+        xy_edges.append(coarse_sensors['edges'][n][idx])
+        first_index.append(idx[0])
 
     #   Create z sampling, based on array sensors pitch
-    z_edges, z_centers = create_z_sampling(r[2, :], array_sensors['pitch'])
+    z_edges, z_centers = create_z_sampling(r[2, :], coarse_sensors['pitch'])
 
     #   Digitize to find indices of voxel for each charge
     _, _, charge_voxel_indices = stats.binned_statistic_dd(
@@ -798,8 +823,8 @@ def find_voxels(r, array_sensors):
 
     return voxels
 
-def find_1d_span(u, sensor_boundaries_1d):
-    """ For a set of 1d positions u, finds min and max indices of
+def find_span(u, sensor_boundaries_1d):
+    """ For array of locations, u, finds min and max indices of
     sensor_boundaries_1d that minimally span u. """
 
     import numpy as np
@@ -810,7 +835,7 @@ def find_1d_span(u, sensor_boundaries_1d):
     i_max = (np.abs(sensor_boundaries_1d - u.max())).argmin()
     if sensor_boundaries_1d[i_max] < u.max(): i_max += 1
 
-    return i_min, i_max
+    return np.arange(i_min, i_max + 1)
 
 def create_z_sampling(z, pitch):
     """
@@ -830,8 +855,8 @@ def create_z_sampling(z, pitch):
     edges =  z.mean() + pitch * np.arange(-i_span, i_span + 1)
 
     #   Now narrow to minimum span, and create centers
-    i_min, i_max = find_1d_span(z, edges)
-    edges = edges[i_min : i_max + 1]
+    idx =  find_span(z, edges)
+    edges = edges[idx]
     centers = edges[:-1] + pitch / 2
 
     return edges, centers

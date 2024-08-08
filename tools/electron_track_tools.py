@@ -14,7 +14,7 @@ class Track:
     """ Electron tracks, including raw_track, drifted_track and
     pixels.  Also display options """
 
-    def __init__(self, full_filename, charge_readout='GAMPixG'):
+    def __init__(self, full_filename, charge_readout_name='GAMPixG'):
         """
         Start by reading raw track file, and define parameters
         with a specified charge readout and simple detector geometry.
@@ -30,42 +30,28 @@ class Track:
         self.truth = truth
         self.meta = meta
 
-        #   Slightly convoluted method of establishing params.  First
-        #   create readout params with null geometry to find coarse
-        #   readout pitch, which is used to set bounding box to
-        #   generate a simple detector that just spans the event, and
-        #   which is finally used to create params
-        params = params_tools.ResponseParams(charge_readout)
-        buffer = params.coarse_pitch + 0.05
-        bounding_box = find_bounding_box(self.raw_track['r'], buffer=buffer)
-        #   Now generate simple geometry based on bounding_box
-        geo_params = params_tools.GeoParams(bounding_box=bounding_box)
-        #   And finally the readout params
+        #   Find bounding dimensions of cell that contains track
+        cell_bounds = find_bounding_box(self.raw_track['r'])
+
+        #   Generate response parameters, assing ot self
         self.params = params_tools.ResponseParams(
-            charge_readout,
-            geo_params,
+            charge_readout_name=charge_readout_name,
+            cell_bounds=cell_bounds,
             )
 
-    def reset_params(self, charge_readout='GAMPixG'):
+    def reset_params(self, charge_readout_name='GAMPixG'):
         """ reset params, which allows change of charge readout,
         removes any read out samples """
 
         import params_tools
 
-        #   Slightly convoluted method of establishing params.  First
-        #   create readout params with null geometry to find coarse
-        #   readout pitch, which is used to set bounding box to
-        #   generate a simple detector that just spans the event, and
-        #   which is finally used to create params
-        params = params_tools.ResponseParams(charge_readout)
-        buffer = params.coarse_pitch + 0.05
-        bounding_box = find_bounding_box(self.raw_track['r'], buffer=buffer)
-        #   Now generate simple geometry based on bounding_box
-        geo_params = params_tools.GeoParams(bounding_box=bounding_box)
-        #   And finally the readout params
+        #   Find bounding dimensions of cell that contains track
+        cell_bounds = find_bounding_box(self.raw_track['r'])
+
+        #   Generate response parameters, assing ot self
         self.params = params_tools.ResponseParams(
-            charge_readout,
-            geo_params,
+            charge_readout_name=charge_readout_name,
+            cell_bounds=cell_bounds,
             )
 
         #   Strip out any previous samples, and drifted track
@@ -109,13 +95,15 @@ class Track:
             #   Save compression size in meta data
             self.meta['compression_bin_size'] = compression_bin_size
 
-    def apply_drift(self, depth=0):
+    def apply_drift(self, depth=0, decompress=True):
         """
         Drifts track, finding charge loss to electronegative capture, and
         adds diffusion
 
         depth: The z value of each entry in the track is assumed negative,
             and the drift distance for each is (z - depth).
+        decompress - if true, expands clumpled electrons (expanding r, num_e)
+            to properly treat diffusion and threshold.
 
         creates track.drifted_track, with fields
             r - same as raw_track, but note can have fewer entries due to
@@ -140,31 +128,37 @@ class Track:
         #   Decompress track so num_e is smaller than readout noise
 
         #   Find noise for the fine grained readout
-        if (self.params.charge_readout=='GAMPixG'
-            or self.params.charge_readout=='GAMPixD'
-            or self.params.charge_readout=='LArPix'):
+        if (self.params.charge_readout_name=='GAMPixG'
+            or self.params.charge_readout_name=='GAMPixD'
+            or self.params.charge_readout_name=='LArPix'):
             noise = self.params.pixels['noise']
-        elif self.params.charge_readout=='AnodeGridD':
+        elif self.params.charge_readout_name=='AnodeGridD':
             noise = self.params.anode_grid['noise']
 
         #   This is maximum size of deompressed num_e
         max_num_e = noise / 2.0
 
-        #   De-compress track so num_e is smaller than noise by some factor
-        #   TODO: handle general case of different keys in raw_track
-        in_args = [self.raw_track['r']]
-        if 'track_id' in self.raw_track:
-            in_args.append(self.raw_track['track_id'])
-            in_args.append(self.raw_track['particle_id'])
+        if decompress:
 
-        num_e, out_data = decompress_track(
-            max_num_e,
-            self.raw_track['num_e'],
-            in_args,
-            )
+            #   De-compress track so num_e is smaller than noise by some factor
+            #   TODO: handle general case of different keys in raw_track
+            in_args = [self.raw_track['r']]
+            if 'track_id' in self.raw_track:
+                in_args.append(self.raw_track['track_id'])
+                in_args.append(self.raw_track['particle_id'])
 
-        #   r in out_data
-        r = out_data[0]
+            num_e, out_data = decompress_track(
+                max_num_e,
+                self.raw_track['num_e'],
+                in_args,
+                )
+
+            #   r in out_data
+            r = out_data[0]
+
+        else:
+            num_e = self.raw_track['num_e']
+            r = self.raw_track['r']
 
         #   Drift distance.  If depth supplied, subtract it.  Otherwise
         #   it is the negative value of z (z=0 is the anode plane)
@@ -215,7 +209,7 @@ class Track:
         #   Assign to track
         self.drifted_track = drifted_track
 
-    def readout_charge(self, depth=0):
+    def readout_charge(self, depth=0, stats_output=False, voxel_output=False):
         """
         Updates params, drifts track, and reads track out with
             configured charge readout
@@ -244,14 +238,16 @@ class Track:
         self.apply_drift(depth=depth)
 
         #   GAMPix for GammaTPC
-        if self.params.charge_readout=='GAMPixG':
+        if self.params.charge_readout_name=='GAMPixG':
 
             #   Readout coarse grids
             self.coarse_grids_samples \
                 = charge_readout_tools.readout_coarse_grids(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.coarse_grids)
+                    self.params.coarse_grids,
+                    stats_output=stats_output,
+                    )
 
             #   Readout pixels - as dual scale pixels
             self.pixel_samples \
@@ -260,10 +256,11 @@ class Track:
                     self.drifted_track['num_e'],
                     self.params.chip_array,
                     self.params.pixels,
+                    stats_output=stats_output,
                     )
 
         #   GAMPix for DUNE
-        elif self.params.charge_readout=='GAMPixD':
+        elif self.params.charge_readout_name=='GAMPixD':
 
             #   Readout coarse tiles - as pixels
             self.coarse_tiles_samples \
@@ -271,6 +268,7 @@ class Track:
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
                     self.params.coarse_tiles,
+                    stats_output=stats_output,
                     )
 
             #   Readout pixels - as dual scale pixels
@@ -280,73 +278,45 @@ class Track:
                     self.drifted_track['num_e'],
                     self.params.coarse_tiles,
                     self.params.pixels,
+                    stats_output=stats_output,
                     )
 
         #   LArPix
-        elif self.params.charge_readout=='LArPix':
+        elif self.params.charge_readout_name=='LArPix':
 
             #   Readout pixels
             self.pixel_samples \
-                = charge_readout_tools.readout_dual_scale_pixels(
+                = charge_readout_tools.readout_pixels(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.coarse_tiles,
                     self.params.pixels,
+                    stats_output=stats_output,
                     )
 
         #   Anode grid
-        elif self.params.charge_readout=='AnodeGridD':
+        elif self.params.charge_readout_name=='AnodeGridD':
 
             self.anode_grid_samples \
                 = charge_readout_tools.readout_anode_grid(
-                self.drifted_track['r'],
-                self.drifted_track['num_e'],
-                self.params.anode_grid,
-                )
+                    self.drifted_track['r'],
+                    self.drifted_track['num_e'],
+                    self.params.anode_grid,
+                    stats_output=stats_output,
+                    )
 
         else:
             sys.exit('ERROR in electron_track_tools: ' +
                      'charge readout architecture not recognized')
 
-    def display(
-            self,
-            raw_track=True,
-            drifted_track=False,
-            pixels=True,
-            resolution=1e-5,
-            max_num_e=None,
-            max_pixel_samples=None,
-            plot_lims=None,
-            show_initial_vector=True,
-            show_origin=True,
-            track_center_at_origin=False,
-            units='mm',
-            view_angles=None,
-            no_axes=False,
-            show_title=True,
-            ):
+    def display(self, **kwargs):
         """
-        Displays track - see help in display_tools.
+        Displays track - see help in display_tools for arguments
+
+        returns: fig, ax, plot_lims
         """
         import display_tools
 
-        fig, ax, plot_lims = display_tools.display(
-                self,
-                raw_track=raw_track,
-                drifted_track=drifted_track,
-                pixels=pixels,
-                resolution=resolution,
-                max_num_e=max_num_e,
-                max_pixel_samples=max_pixel_samples,
-                plot_lims=plot_lims,
-                show_initial_vector=show_initial_vector,
-                show_origin=show_origin,
-                track_center_at_origin=track_center_at_origin,
-                units=units,
-                view_angles=view_angles,
-                no_axes=no_axes,
-                show_title=show_title,
-                )
+        fig, ax, plot_lims = display_tools.display_track(self, **kwargs)
 
         return fig, ax, plot_lims
 
@@ -465,7 +435,7 @@ def load_track(full_file_name):
 
     return raw_track, truth, meta
 
-def find_bounding_box(r, buffer=0.01):
+def find_bounding_box(r, buffer=0.0):
     """
     Finds box that spans r, with an added buffer
     """
@@ -483,17 +453,19 @@ def find_bounding_box(r, buffer=0.01):
 
     return bounding_box
 
-def find_bounding_cube(r, buffer=0.01):
+def find_bounding_cube(r, buffer=0.0):
     """
     Finds cube that spans r, with an added buffer.
     """
 
-    #   Start with bounding box.
-    bounding_cube = find_bounding_box(r, buffer=buffer)
+    import numpy as np
 
-    #   Add buffer
-    bounding_cube[:, 0] -= buffer
-    bounding_cube[:, 1] += buffer
+    #   Start with bounding box.
+    bounding_box = find_bounding_box(r, buffer=buffer)
+
+    #   Now make all spans equal to largest
+    bounding_cube = bounding_box.mean(axis=1)[:, None] \
+        +  0.5 * np.diff(bounding_box).max() * np.array([-1., 1.])
 
     return bounding_cube
 
