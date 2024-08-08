@@ -23,23 +23,23 @@ TODO:
 @author: bahrudint
 """
 
-def display(
-        self,
-        raw_track=True,
-        drifted_track=False,
-        pixels=True,
-        resolution=1e-5,
-        max_num_e=None,
-        max_pixel_samples=None,
-        plot_lims=None,
-        show_initial_vector=True,
-        show_origin=True,
-        track_center_at_origin=False,
-        units='mm',
-        view_angles=None,
-        no_axes=False,
-        show_title=True,
-        ):
+def display_track(self,
+                  raw_track=True,
+                  drifted_track=False,
+                  pixels=True,
+                  resolution=1e-5,
+                  max_num_e=None,
+                  max_pixel_samples=None,
+                  plot_lims=None,
+                  units='cm',
+                  show_initial_vector = True,
+                  center = False,
+                  show_origin = True,
+                  view_angles = None,
+                  no_axes = False,
+                  show_title = True,
+                  ):
+
     """
     Display track in new fig, ax.
     old notes: set axes to same span, espeically for tracks only.
@@ -61,7 +61,7 @@ def display(
     def prep_track(r, num_e, resolution, scale, track_extent):
 
         #   If needed, change resolution to getreasonable bin size
-        max_num_bins = 100
+        max_num_bins = 500
         if (track_extent / resolution) > max_num_bins:
             resolution = track_extent  / max_num_bins
 
@@ -101,22 +101,17 @@ def display(
         #   Scale r_p for plotting
         r_p = r_p * scale
 
+        # r_p = r * scale
+        # n_e_p = num_e
+
         return r_p, n_e_p
 
-    #   Check input and deal with defaults
+    #   Check inpus and assign defaults
 
     if drifted_track and not hasattr(self, 'drifted_track'):
-        print('*** Warning - no drifted track to display')
         drifted_track = False
     if pixels and not hasattr(self, 'pixel_samples'):
-        print('*** Error in display: no pixel redaout to display')
         pixels = False
-    if track_center_at_origin:
-        offset = self.raw_track['r'].mean(axis=1)
-    else:
-        offset = np.zeros((3,))
-
-    #
     if not (raw_track or drifted_track or pixels):
         print('*** Nothing to display')
         return None, None, None
@@ -129,8 +124,15 @@ def display(
         scale = 100
     elif units=='µm':
         scale = 1e6
+    elif units=='nm':
+        scale = 1e9
     else:
         print('*** Error in display_track - bad units ***')
+
+    if center:
+        offset = self.raw_track['r'].mean(axis=1)
+    else:
+        offset = np.zeros((3,))
 
     #   Raw or drfited track - assign, and subtract offset
     if raw_track:
@@ -153,7 +155,7 @@ def display(
 
     #   Plot limits
     if plot_lims is None:
-        if pixels:
+        if pixels: # and not raw_track:
             pitch = self.params.pixels['pitch']
             if 'r_raw' in self.pixel_samples:
                 plot_lims = electron_track_tools.find_bounding_cube(
@@ -177,9 +179,21 @@ def display(
     o_p = origin * scale
 
     #   Tags
-    track_tag \
-        = f'{self.truth["track_energy"]:4.0f} keV, ' \
-        + f'{self.truth["num_electrons"]/1000:4.1f}K e-'
+    if self.truth["num_electrons"] < 1000:
+        num_tag = f', {self.truth["num_electrons"]:d} e-'
+    elif self.truth["num_electrons"] < 1e6:
+        num_tag = f', {self.truth["num_electrons"]/1000:4.1f}K e-'
+    else:
+        num_tag = f', {self.truth["num_electrons"]/1e6:4.1f}K e-'
+    if 'material' in self.meta:
+        material_tag = ' in ' + self.meta['material']
+    else:
+        material_tag = ''
+    track_tag = (
+        f'{self.truth["track_energy"]:4.0f} keV'
+        + material_tag
+        + num_tag
+        )
 
     if pixels:
         track_tag = track_tag + '; '

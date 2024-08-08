@@ -61,8 +61,24 @@ def simple_penelope_track_maker(p,
     #   Material and params to give recombination.  This should beis really not
     #   handled well - material shoul be in params
     material = 'LAr'
+    if 'material' in steering:
+        material = steering['material']
     import params_tools
     params = params_tools.ResponseParams()
+
+    #   Particles. 1=electron, 2=photon, 3=positron
+    #   Set to electrons if missing
+    if not 'particles' in steering:
+        particles = 1
+    else:
+        particles = steering['particles']
+
+    if particles==1:
+        ptag = 'electrons'
+    if particles==2:
+        ptag = 'photons'
+    if particles==3:
+        ptag = 'positrons'
 
     #   Prep and check folders
     if not os.path.isdir(p['output']):
@@ -72,28 +88,21 @@ def simple_penelope_track_maker(p,
         print('*** Error: No executable folder ***')
         exit()
 
-    #   Particle, if missign.  1=electron, 2=photon, 3=positron
-    if not 'particles' in steering:
-        steering['particles'] = np.ones(steering['energies'].size, dtype=int)
+    #%%  Simulate - loop through energies
 
-    #%%  Simulate - loop through steering['energies']
+    for ne, energy in enumerate(steering['energies']):
 
-    for ne in range(steering['energies'].size):
+        #   Output folders.  Order is  material / particles /energy.
+        #   Create as needed, and can wipe.
 
-        #   Output folders.  Top level is particle, then energy.
-        #   Create as needed, adn can wipe.
+        etag = f'E{energy:07.0f}'
 
-        particle = steering['particles'][ne]
-        etag = f'E{steering["energies"][ne]:07.0f}'
-
-        if particle==1:
-            ptag = 'electrons'
-        if particle==2:
-            ptag = 'photons'
-        if particle==3:
-            ptag = 'positrons'
-
-        p1 = os.path.join(p['output'], ptag)
+        p0 = os.path.join(p['output'], material)
+        if not os.path.isdir(p0):
+            os.mkdir(p0)
+        p1 = os.path.join(p0, ptag)
+        if not os.path.isdir(p1):
+            os.mkdir(p1)
         p2 = os.path.join(p1, etag)
         if os.path.isdir(p2):
             os.chdir(p2)
@@ -105,7 +114,8 @@ def simple_penelope_track_maker(p,
 
         #   Blab
         print('Working on ' + str(steering['num_tracks'][ne])
-              + ' * ' + str(steering['energies'][ne]) + ' keV ' + ptag)
+              + ' * ' + str(energy) + ' keV ' + ptag
+              + ' in ' + material)
 
         #   These control looping over calls to penelope
         num_full_bunches = np.fix(
@@ -148,8 +158,9 @@ def simple_penelope_track_maker(p,
             #   Create pentracks.in in the data folder, specifying
             #   energies and number of tracks
             penelope_in_image = pentracks_in_file_image(
-                steering['energies'][ne],
-                steering['particles'][ne],
+                energy,
+                particles,
+                material,
                 num_penelope_tracks,
                 fresh_seed
                 )
@@ -188,6 +199,10 @@ def simple_penelope_track_maker(p,
                     compression_bin_size=compression_bin_size
                     )
 
+                #   Save material and initial particle to meta data
+                track['meta']['material'] = material
+                track['meta']['initial_particle'] = particles
+
                 #  Save penelope_tracks
                 file_name = full_file_name.split(os.path.sep)[-1]
                 out_file_name = (
@@ -208,7 +223,7 @@ def simple_penelope_track_maker(p,
         os.system('rm pentracks')
 
 def parse_penelope_file(
-        p_out,
+        p_data,
         full_file_name,
         params,
         random_initial_direction=True,
@@ -216,7 +231,7 @@ def parse_penelope_file(
         compression_bin_size=200e-6
         ):
     """
-    Reads Penelope output track files in folder p_out, parses them to create
+    Reads Penelope output track files in folder p_data, parses them to create
         track and saves them, one fle per track
         Works on set of files of same energy in single folder.  Each file,
         input and output, is a single track.
@@ -251,7 +266,7 @@ def parse_penelope_file(
     import math_tools
 
     #   Get penelope settings from penelope_in file
-    penelope_input = parse_penelope_in(p_out)
+    penelope_input = parse_penelope_in(p_data)
 
     #   define w
     #   Fudge was some early rough kludge; should be revisited. Also,
@@ -263,7 +278,7 @@ def parse_penelope_file(
     # print('\r  file  ' + str(nf) + ' ', end='')
 
     file_name = full_file_name.split(os.path.sep)[-1]
-    with open(os.path.join(p_out, file_name)) as file:
+    with open(os.path.join(p_data, file_name)) as file:
         lines = file.readlines()
 
     #   First line blank, next is simulation time
@@ -456,7 +471,8 @@ def parse_penelope_in(p):
     return penelope_input
 
 def pentracks_in_file_image(energy,
-                            particle=1,
+                            particles=1,
+                            material='LAr',
                             num_tracks=1000,
                             fresh_seed=True
                             ):
@@ -523,13 +539,19 @@ def pentracks_in_file_image(energy,
         #   Primary particle
         if line[0:6].strip()=='SKPAR':
             penelope_in[nl] = (
-                f'SKPAR  {particle:d}'
+                f'SKPAR  {particles:d}'
                 ).ljust(line.find('[')) + line[line.find('['):]
 
         #   Track energy
         if line[0:6].strip()=='SENERG':
             penelope_in[nl] = (
                 f'SENERG {energy:0.0f}e3'
+                ).ljust(line.find('[')) + line[line.find('['):]
+
+        #   Target material
+        if line[0:6].strip()=='MFNAME':
+            penelope_in[nl] = (
+                'MFNAME ' + material + '.mat'
                 ).ljust(line.find('[')) + line[line.find('['):]
 
         #   Number of tracks

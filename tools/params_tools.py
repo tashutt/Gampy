@@ -37,7 +37,7 @@ def default_geomega_inputs(cell_geometry='rectangular'):
     inputs['cells'] = {}
     inputs['cells']['geometry'] = cell_geometry
     inputs['cells']['height'] = 0.175
-    inputs['cells']['flat_to_flat'] = 0.175
+    inputs['cells']['width'] = 0.175   # flat-to-flat for hexagonal cells
     inputs['cells']['wall_thickness'] = 0.3e-3
 
     inputs['acd'] = {'thickness': 0.007}
@@ -54,7 +54,7 @@ def default_geomega_inputs(cell_geometry='rectangular'):
 
     return inputs
 
-def default_response_inputs(charge_readout):
+def default_response_inputs(charge_readout_name):
     """"
     Default values of inputs defining the detector response,
     including the definition of the charge readout, which is not part
@@ -96,21 +96,6 @@ def default_response_inputs(charge_readout):
     inputs['spatial_resolution']['sigma_z'] = 0.5e-3
     inputs['spatial_resolution']['track_direction_error_multiplier'] = 1
 
-    #   Simple energy resolution - should retire.  Currently
-    #   I think just
-    #   used for error estimate for .evta file.  Should do this
-    #   differently
-    """ Simplified treatment of energy, used to estimate energy
-    resolution as input to Revan  Resolution has
-    rt(E) term and a constant. rt(E) is sigma_o at energy_o,
-    constant is sigma_f
-    Might want to add a simple estimate of threshold here
-    """
-    inputs['simple_energy_resolution'] = {}
-    inputs['simple_energy_resolution']['sigma_o'] = 0.015
-    inputs['simple_energy_resolution']['energy_o'] = 1000
-    inputs['simple_energy_resolution']['sigma_f'] = 5
-
     #%%  Charge readout
     """
     Charge readout is independent of detector geometry.  The readout
@@ -121,7 +106,7 @@ def default_response_inputs(charge_readout):
     Note 'type' which defines sensor type for charge_readout_tools
     """
 
-    if charge_readout=='GAMPixG':
+    if charge_readout_name=='GAMPixG':
         """ GAMPix for GammaTPC """
 
         #  Coarse grids
@@ -142,12 +127,12 @@ def default_response_inputs(charge_readout):
         inputs['pixels']['pitch'] = 500e-6
         inputs['pixels']['power_per_pixel'] = 1e-3
         inputs['pixels']['noise'] = 25
+        inputs['pixels']['trigger_noise'] = 20
         inputs['pixels']['threshold_sigma'] = 4.0
         inputs['pixels']['pad_width'] = 20e-6
-        inputs['pixels']['sio2_thickenss'] = 1e-6
         inputs['pixels']['stray_capacitance'] = 0.01e-12
 
-    elif charge_readout=='GAMPixD':
+    elif charge_readout_name=='GAMPixD':
         """ GAMPix for DUNE """
 
         #  Coarse tiles
@@ -166,15 +151,16 @@ def default_response_inputs(charge_readout):
         inputs['pixels']['pitch'] = 0.005
         inputs['pixels']['power_per_pixel'] = 1e-3
         inputs['pixels']['noise'] = 50
+        inputs['pixels']['trigger_noise'] = 40
         inputs['pixels']['threshold_sigma'] = 4.0
 
-    elif charge_readout=='LArPix':
+    elif charge_readout_name=='LArPix':
         """ LArPix for DUNE """
 
-        #   These are "virtual" coarse tiles - used for pixel readout
-        #   computation only
-        inputs['coarse_tiles'] = {}
-        inputs['coarse_tiles']['pitch'] = 0.1
+        # #   These are "virtual" coarse tiles - used for pixel readout
+        # #   computation only
+        # inputs['coarse_tiles'] = {}
+        # inputs['coarse_tiles']['pitch'] = 0.1
 
         #  Pixels
         inputs['pixels'] = {}
@@ -185,7 +171,7 @@ def default_response_inputs(charge_readout):
         inputs['pixels']['noise'] = 1000
         inputs['pixels']['threshold_sigma'] = 5.0
 
-    elif charge_readout=='AnodeGridG':
+    elif charge_readout_name=='AnodeGridG':
         """ Single direction of anode wires for GammaTPC """
 
         #  Anode wires
@@ -196,7 +182,7 @@ def default_response_inputs(charge_readout):
         inputs['anode_grid']['noise'] = 50
         inputs['anode_grid']['threshold_sigma'] = 5.0
 
-    elif charge_readout=='AnodeGridD':
+    elif charge_readout_name=='AnodeGridD':
         """ Single direction of anode wires for DUNE """
 
         #  Anode wires
@@ -214,146 +200,103 @@ def default_response_inputs(charge_readout):
 
 class GeoParams:
     """
-    Params object for geometry
+    Params object for geomega geometry
     """
 
     def __init__(self,
-                 detector_geometry='simple',
-                 cell_geometry='rectangular',
-                 bounding_box=None,
+                 cell_geometry='hexagonal',
                  ):
         """
-        Initializes geometry parameters:
+        Initializes geomaga geometry parameters:
             + defines geometry topology, and cell geometry
             + loads default input constants
             + calculates parameters.
         """
 
-        import sys
+        #   Record that geomega geometry is used
+        self.detector_geometry = 'geomega'
 
-        #   Set cell and detector geometries in params
-        #   Set versions in params here in future
-        self.detector_geometry = detector_geometry
-        self.cell_geometry = cell_geometry
-
-        #   For geomega geometry, get default inputs
+        #   Load default inputs
         #   In the future, will need versioning here
-        if detector_geometry=='geomega':
-            self.inputs = default_geomega_inputs(cell_geometry)
-
-        #   For simple detetor geometry, cell geometry is rectangular
-        elif detector_geometry=='simple':
-            if cell_geometry!='rectangular':
-                print("*** Warning: cell_gometry set to 'rectangular'")
-            cell_geometry='rectangular'
-
-        #   Else - bad geometry
-        else:
-            sys.exit('Error in GeoParam - bad detector geometry')
+        self.inputs = default_geomega_inputs(cell_geometry)
 
         #   This flag used to turn off calculations when used after
         #   Cosima has run.   Perhaps better done with a decorator?
         self.live = True
 
         #   Calculate geometry
-        self.calculate(bounding_box)
+        self.calculate()
 
-    def calculate(self,
-                  bounding_box=None,
-                  ):
+    def calculate(self):
         """
-        Calculates parameters based on input constants
+        Calculates parameters based on input constants.
         """
 
         import sys
-        import numpy as np
 
         import geometry_tools
 
         if not self.live:
             sys.exit('Error: GeoParams calculate not allowed in this state')
 
-        #   Simple geometry
-        if self.detector_geometry=='simple':
+        #   Assign all inputs to attributes of params
+        for key in self.inputs.keys():
+            attribute_dictionary = {}
+            for sub_key in self.inputs[key]:
+                attribute_dictionary[sub_key] \
+                    = self.inputs[key][sub_key]
+            setattr(self, key, attribute_dictionary)
 
-            #   Set default bounding box if not supplied
-            if bounding_box is None:
-                bounding_box = np.array(
-                    [[-1, -1, -1], [1, 1, 1]],
-                    dtype=float
-                    ).T
-
-            #   All that is calculated is cells
-            self.cells = geometry_tools.init_simple_geometry(
-                bounding_box,
-                )
-
-        #   Geomega geometry
-        elif self.detector_geometry=='geomega':
-
-            #   Assign all inputs to attributes of params
-            for key in self.inputs.keys():
-                attribute_dictionary = {}
-                for subkey in self.inputs[key]:
-                    attribute_dictionary[subkey] \
-                        = self.inputs[key][subkey]
-                setattr(self, key, attribute_dictionary)
-
-            #   Calcaulate geomaga geometry.
-            #   Different versions will be handled here.
-            self = geometry_tools.calculate_geomega_geometry_v1(self)
+        #   Calcaulate geomaga geometry.
+        #   Different versions will be handled here.
+        self = geometry_tools.calculate_geomega_geometry_v1(self)
 
 class ResponseParams:
     """
-    Parameter describing the detector readout.  There are a set of
-    "input" parameters, from which all else is derived via the "recalculate"
-    method.
-    To change parameters, modify input parameters and recalculate - do not
-    directly modify derived parameters.
+    Parameters describing the detector readout.
+
+    There are a set of "input" parameters, from which all else is
+    calculated via the "calculate" method.  To change parameters,
+    modify input parameters and calculate - do not
+    directly modify calculated parameters.
+
+    The geometry of a TPC cell is determined by one of two methods:
+        + provided by separately determined geometry, currently geomaga
+        + the lateral extent is based on cell_bounds, and the height is
+            not defined
     """
 
     def __init__(self,
-                 charge_readout='GAMPixG',
-                 geo_params=None,
+                 charge_readout_name='GAMPixG',
+                 cells=None,
+                 cell_bounds=None,
                  ):
         """
-        Initializes response parameters:
-            + defines charge readout
-            + loads default input constants
-            + calculates parameters.
-
-        Inputs:
-            geo_params - geometry parameters.  If not supplied, then
-                uses GeoParams default
-            charge_readout - Options defined in charge_readout_tools
+        Initializes response parameters.
         """
 
-        #   Default simple geometry if geo_params not supplied
-        if not geo_params:
-            geo_params = GeoParams()
+        #   Save cells and charge readout to params
+        self.cells = cells
+        self.charge_readout_name = charge_readout_name
 
-        #   Save cells from geo_params, and charge readout to params
-        self.cells = geo_params.cells
-        self.cell_geometry = geo_params.cell_geometry
-        self.charge_readout = charge_readout
-
-        #   Default inputs
-        self.inputs = default_response_inputs(charge_readout)
+        #   Load default inputs
+        self.inputs = default_response_inputs(charge_readout_name)
 
         #   Calculate
-        self.calculate()
+        self.calculate(cell_bounds=cell_bounds)
 
-    def calculate(self):
+    def calculate(self, cell_bounds=None):
         """
         Calculates parameters based on input constants
 
         TODO revisit charge readout decision making?
         """
 
-        import charge_drift_tools
-
         import math
         import numpy as np
+
+        import charge_drift_tools
+        import geometry_tools
 
         #   Dielectric constants
         eps = define_eps()
@@ -361,10 +304,44 @@ class ResponseParams:
         #%%   Assign all inputs to attributes of params
         for key in self.inputs.keys():
             attribute_dictionary = {}
-            for subkey in self.inputs[key]:
-                attribute_dictionary[subkey] \
-                    = self.inputs[key][subkey]
+            for sub_key in self.inputs[key]:
+                attribute_dictionary[sub_key] \
+                    = self.inputs[key][sub_key]
             setattr(self, key, attribute_dictionary)
+
+        #%%  If cells not provided, create simple cell that spans bounding
+        #    box and buffer
+
+        #   cells from default simple geometry if not supplied
+        if not self.cells:
+
+            #   Set default bounding box if not supplied
+            if cell_bounds is None:
+                cell_bounds = np.array(
+                    [[-1, -1, -1], [1, 1, 1]],
+                    dtype=float
+                    ).T
+
+            #   Add fixed buffer, and pitch of largest electrodes
+            buffer = 0.01
+            if 'coarse_tiles' in self.inputs:
+                buffer += self.inputs['coarse_tiles']['pitch']
+            elif 'coarse_grids' in self.inputs:
+                buffer += self.inputs['coarse_grids']['pitch']
+            else:
+                if 'pixels' in self.inputs:
+                    buffer += self.inputs['pixels']['pitch']
+                elif 'anode_grid' in self.inputs:
+                    buffer += self.inputs['anode_grid']['pitch']
+
+            #   Add buffer
+            cell_bounds[:, 0] -= buffer
+            cell_bounds[:, 1] += buffer
+
+            #   Now get simple cells geometry
+            self.cells = geometry_tools.init_simple_cell(
+                cell_bounds,
+                )
 
         #%%   Drift properties
 
@@ -414,7 +391,7 @@ class ResponseParams:
             coarse_grids['plotting']['wire_ends_y'] = {}
 
             #   Rectangular cells are fairly simple
-            if self.cell_geometry=='rectangular':
+            if self.cells['geometry']=='rectangular':
                 xe = []
                 ye = []
                 for y in coarse_grids['centers'][1]:
@@ -429,7 +406,7 @@ class ResponseParams:
                     coarse_grids['plotting']['wire_ends_y']['y'] = ye
 
             #   Hexagonal cells take work
-            elif self.cell_geometry=='hexagonal':
+            elif self.cells['geometry']=='hexagonal':
 
                 xe = []
                 ye = []
@@ -513,7 +490,7 @@ class ResponseParams:
 
         #%%   Chip array for GAMPixG defined based on coarse grids.
         #   Note - there are no input params for chip_array.
-        if self.charge_readout=='GAMPixG':
+        if self.charge_readout_name=='GAMPixG':
 
             self.chip_array = {}
 
@@ -530,7 +507,7 @@ class ResponseParams:
                     / self.charge_drift['velocity']
 
             #   Rectangular cells are fairly simple
-            if self.cell_geometry=='rectangular':
+            if self.cells['geometry']=='rectangular':
 
                 pitch = np.diff(self.coarse_grids['centers'][0][:2])
 
@@ -552,7 +529,7 @@ class ResponseParams:
 
             #   Hexagonal calculations. The cell is oriented with an
             #   edge on the x axis.  tiles are arranged in rows.
-            elif self.cell_geometry=='hexagonal':
+            elif self.cells['geometry']=='hexagonal':
 
                 #   convenient variables
                 w =  self.chip_array['pitch']
@@ -713,7 +690,7 @@ class ResponseParams:
 
             #   Sampling time and pitch, equal to gap .  But don't create
             #   for LArPix since there this sensor is virtual
-            if not self.charge_readout=='LArPix':
+            if not self.charge_readout_name=='LArPix':
                 self.coarse_tiles['sampling_pitch'] \
                     = self.coarse_tiles['gap']
                 self.coarse_tiles['sampling_time'] \
@@ -728,11 +705,12 @@ class ResponseParams:
             pitch = self.pixels['pitch']
 
             #   Span depends on architecture
-            if self.charge_readout=='GAMPixG':
+            if self.charge_readout_name=='GAMPixG':
                 span = self.chip_array['pitch']
-            elif self.charge_readout=='GAMPixD' \
-                or self.charge_readout=='LArPix':
+            elif self.charge_readout_name=='GAMPixD':
                 span = self.coarse_tiles['pitch']
+            elif self.charge_readout_name=='LArPix':
+                span = self.cells['width_yi']
 
             #   Edges and centers
             self.pixels['centers'] = []
@@ -757,8 +735,11 @@ class ResponseParams:
                 self.pixels['sampling_pitch'] \
                     / self.charge_drift['velocity']
 
-    def apply_study_case(self, study, case):
-        """ Apply case of study to inputs, then recalculate params"""
+    def apply_study_case(self, study, case, restore_defaults=False):
+        """ Apply case of study to inputs, with optional restoration of
+            default values (needed if different cases do not change
+                            the same parameters)
+        then recalculate params"""
 
         if not hasattr(self, 'meta'):
             self.meta = {}
@@ -766,6 +747,10 @@ class ResponseParams:
         #   Save study and case to params
         self.meta['study'] = study
         self.meta['case'] = case
+
+        #   Load default inputs, if asked
+        if restore_defaults:
+            self.inputs = default_response_inputs(charge_readout_name)
 
         #   Mod study parameters
         for ni in range(len(study.fields[case])):
