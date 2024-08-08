@@ -42,10 +42,10 @@ print(f'{energy/1000:3.02f} keV track {file_num:1.0f}'
       + f', at {depth:2.1f} m depth')
 
 #   Set the charge readout to GAMPixD, then read out and blab.
-track.reset_params(charge_readout='GAMPixD')
+track.reset_params(charge_readout_name='GAMPixD')
 track.readout_charge(depth)
 
-print(track.params.charge_readout)
+print(track.params.charge_readout_name)
 print( '  charge surviving drift: '
       + f'{track.drifted_track["num_e"].sum():4.0f} e-')
 print( '  pixels charge: '
@@ -58,29 +58,29 @@ track.display(pixels=False)
 track.display(raw_track=False)
 
 #   Read out with LArPix
-track.reset_params(charge_readout='LArPix')
+track.reset_params(charge_readout_name='LArPix')
 track.readout_charge(depth)
 
-print(track.params.charge_readout)
+print(track.params.charge_readout_name)
 print( '  pixels charge: '
       + f'{track.pixel_samples["samples_triggered"].sum():4.0f} e-')
 
 #   Read out with AnodeGrid
-track.reset_params(charge_readout='AnodeGridD')
+track.reset_params(charge_readout_name='AnodeGridD')
 track.readout_charge(depth)
 
-print(track.params.charge_readout)
+print(track.params.charge_readout_name)
 print( '  anode grid charge: '
       + f'{track.anode_grid_samples["samples_triggered"].sum():4.0f} e-')
 
 #   Back to GAMPixD, also changing some settings
 noise = 1000
 lifetime = 5e-3
-track.reset_params(charge_readout='GAMPixD')
+track.reset_params(charge_readout_name='GAMPixD')
 track.params.inputs['charge_drift']['electron_lifetime'] = lifetime
 track.params.inputs['pixels']['noise'] = noise
 track.readout_charge(depth)
-print(track.params.charge_readout)
+print(track.params.charge_readout_name)
 
 print(f'  Mod: pixels noise = {noise:3.0f} e-'
       + f', lifetime = {lifetime*1e3:3.1f} ms')
