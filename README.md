@@ -1,1 +1,1 @@
-[GampyDocs.pdf](https://github.com/user-attachments/files/16604047/GampyDocs.pdf)
+[GampyDocs.pdf](https://github.com/user-attachments/files/16604565/GampyDocs.pdf)
