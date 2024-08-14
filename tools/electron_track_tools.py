@@ -14,7 +14,7 @@ class Track:
     """ Electron tracks, including raw_track, drifted_track and
     pixels.  Also display options """
 
-    def __init__(self, full_filename, charge_readout_name='GAMPixG'):
+    def __init__(self, full_filename, *args, charge_readout_name='GAMPixG', **kwargs):
         """
         Start by reading raw track file, and define parameters
         with a specified charge readout and simple detector geometry.
@@ -23,7 +23,7 @@ class Track:
         import params_tools
 
         #   Read track
-        raw_track, truth, meta = load_track(full_filename)
+        raw_track, truth, meta = load_track(full_filename, *args, **kwargs)
 
         #   Assign everything in track
         self.raw_track = raw_track
@@ -392,7 +392,17 @@ def save_track(full_file_name, track):
     with open(os.path.join(full_file_name + '.pickle'), 'wb') as f:
         pickle.dump(track_info, f)
 
-def load_track(full_file_name):
+def load_track(*args, input_format = 'numpy', **kwargs):
+    track_loaders = {'numpy': load_track_from_numpy,
+                     'dumpTree': load_track_from_dumpTree,
+                     }
+
+    assert input_format in track_loaders
+    raw_track, truth, meta = track_loaders[input_format](*args, **kwargs)
+
+    return raw_track, truth, meta
+
+def load_track_from_numpy(full_file_name, **kwargs):
     """
     Loads .npz + .pickel track in full_file_name
 
@@ -433,6 +443,40 @@ def load_track(full_file_name):
         meta['file_name'] \
             = full_file_name.split(os.path.sep)[-1]
 
+    return raw_track, truth, meta
+
+def load_track_from_dumpTree(full_file_name,
+                             event_id,
+                             **kwargs):
+    """
+    Loads HDF5 file and returns samples drawn from segments
+
+    8/13/24 DD
+    """
+    
+    import h5py
+    from edepsim_tools import quench
+    
+    f = h5py.File(full_file_name)
+
+    segment_mask = f['segments']['event_id'] == event_id
+    event_segments = f['segments'][segment_mask]
+
+    trajectories_mask = f['trajectories']['event_id'] == event_id
+    event_trajectories = f['trajectories'][trajectories_mask]
+
+    quench(event_segments)
+
+    r, num_e, track_id, pdg_id, track_info = h5_convert(event_segments,
+                                                        event_trajectories,
+                                                        **kwargs)
+
+    raw_track = {'r': r,
+                 'num_e': num_e,
+                 }
+    truth = track_info['truth']
+    meta = track_info['meta']
+    
     return raw_track, truth, meta
 
 def find_bounding_box(r, buffer=0.0):
