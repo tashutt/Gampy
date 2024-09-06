@@ -145,7 +145,7 @@ def display_track(self,
     #   Plot limits
     if plot_lims is None:
         if pixels: # and not raw_track:
-            pitch = self.params.pixels['pitch']
+            pitch = self.read_params.pixels['pitch']
             if 'r_raw' in self.pixel_samples:
                 plot_lims = electron_track_tools.find_bounding_cube(
                     self.pixel_samples['r_raw'] * scale, buffer = pitch / 2)
@@ -187,10 +187,10 @@ def display_track(self,
     if pixels:
         track_tag = track_tag + '; '
         pixel_tag \
-            = f'\n{self.params.pixels["pitch"]*1e6:4.0f}' \
+            = f'\n{self.read_params.pixels["pitch"]*1e6:4.0f}' \
             + ' $\mu$m pitch, ' \
             + '$\sigma_e$ = ' \
-            + f'{self.params.pixels["noise"]:4.1f} e-'
+            + f'{self.read_params.pixels["noise"]:4.1f} e-'
     else:
         pixel_tag = ''
     if (pixels or drifted_track) and ('depth' in self.drifted_track):

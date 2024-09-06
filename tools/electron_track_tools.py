@@ -4,6 +4,8 @@ Created on Mon Aug  3 19:22:53 2020
 Collection of tools for the class Track which describes an electron track,
 and related functions.
 
+TODO: Add input from other sources.  Deal with variations in meta information.
+TODO: Move charge_drift_tools into readout_tools and remove from here
 TODO: Rationalize what is here, and what is in penelope_tools
 TODO: Use .h5py for files, and save in only one format
 
@@ -20,7 +22,7 @@ class Track:
         with a specified charge readout and simple detector geometry.
         """
 
-        import params_tools
+        import readout_tools
 
         #   Read track
         raw_track, truth, meta = load_track(full_filename)
@@ -33,8 +35,8 @@ class Track:
         #   Find bounding dimensions of cell that contains track
         cell_bounds = find_bounding_box(self.raw_track['r'])
 
-        #   Generate response parameters, assing ot self
-        self.params = params_tools.ResponseParams(
+        #   Generate response parameters, assing to self
+        self.read_params = readout_tools.Params(
             charge_readout_name=charge_readout_name,
             cell_bounds=cell_bounds,
             )
@@ -43,13 +45,13 @@ class Track:
         """ reset params, which allows change of charge readout,
         removes any read out samples """
 
-        import params_tools
+        import readout_tools
 
         #   Find bounding dimensions of cell that contains track
         cell_bounds = find_bounding_box(self.raw_track['r'])
 
         #   Generate response parameters, assing ot self
-        self.params = params_tools.ResponseParams(
+        self.read_params = readout_tools.Params(
             charge_readout_name=charge_readout_name,
             cell_bounds=cell_bounds,
             )
@@ -65,8 +67,8 @@ class Track:
             delattr(self, 'drifted_track')
 
     def compress(self, compression_bin_size=200e-6):
-        """  Compresses raw_track using iterative 3d binning to scale
-        set by compression_bin_size """
+        """  Compresses raw_track using iterative hierarchical 3d binning,
+        to a scale set by compression_bin_size """
 
         #   Do not compress if already more compressed
         if ('compression_bin_size' in self.meta) \
@@ -118,22 +120,22 @@ class Track:
         import charge_drift_tools
 
         #   Recalculate params
-        self.params.calculate()
+        self.read_params.calculate()
 
         drift_properties = charge_drift_tools.properties(
-            self.params.charge_drift['drift_field'],
-            self.params.material
+            self.read_params.charge_drift['drift_field'],
+            self.read_params.material
             )
 
         #   Decompress track so num_e is smaller than readout noise
 
         #   Find noise for the fine grained readout
-        if (self.params.charge_readout_name=='GAMPixG'
-            or self.params.charge_readout_name=='GAMPixD'
-            or self.params.charge_readout_name=='LArPix'):
-            noise = self.params.pixels['noise']
-        elif self.params.charge_readout_name=='AnodeGridD':
-            noise = self.params.anode_grid['noise']
+        if (self.read_params.charge_readout_name=='GAMPixG'
+            or self.read_params.charge_readout_name=='GAMPixD'
+            or self.read_params.charge_readout_name=='LArPix'):
+            noise = self.read_params.pixels['noise']
+        elif self.read_params.charge_readout_name=='AnodeGridD':
+            noise = self.read_params.anode_grid['noise']
 
         #   This is maximum size of deompressed num_e
         max_num_e = noise / 2.0
@@ -170,7 +172,7 @@ class Track:
 
         #    Survival fraction to trapping
         survive = np.exp(-drift_distance
-                      / self.params.charge_drift['drift_length'])
+                      / self.read_params.charge_drift['drift_length'])
         num_e = np.random.binomial(num_e, survive)
         survival_mask = num_e>0
 
@@ -230,7 +232,7 @@ class Track:
         import charge_readout_tools
 
         #   Recalculate params
-        self.params.calculate()
+        self.read_params.calculate()
 
         #   Apply drift
         if depth<0:
@@ -238,14 +240,14 @@ class Track:
         self.apply_drift(depth=depth)
 
         #   GAMPix for GammaTPC
-        if self.params.charge_readout_name=='GAMPixG':
+        if self.read_params.charge_readout_name=='GAMPixG':
 
             #   Readout coarse grids
             self.coarse_grids_samples \
                 = charge_readout_tools.readout_coarse_grids(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.coarse_grids,
+                    self.read_params.coarse_grids,
                     stats_output=stats_output,
                     )
 
@@ -254,20 +256,20 @@ class Track:
                 = charge_readout_tools.readout_dual_scale_pixels(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.chip_array,
-                    self.params.pixels,
+                    self.read_params.chip_array,
+                    self.read_params.pixels,
                     stats_output=stats_output,
                     )
 
         #   GAMPix for DUNE
-        elif self.params.charge_readout_name=='GAMPixD':
+        elif self.read_params.charge_readout_name=='GAMPixD':
 
             #   Readout coarse tiles - as pixels
             self.coarse_tiles_samples \
                 = charge_readout_tools.readout_pixels(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.coarse_tiles,
+                    self.read_params.coarse_tiles,
                     stats_output=stats_output,
                     )
 
@@ -276,31 +278,31 @@ class Track:
                 = charge_readout_tools.readout_dual_scale_pixels(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.coarse_tiles,
-                    self.params.pixels,
+                    self.read_params.coarse_tiles,
+                    self.read_params.pixels,
                     stats_output=stats_output,
                     )
 
         #   LArPix
-        elif self.params.charge_readout_name=='LArPix':
+        elif self.read_params.charge_readout_name=='LArPix':
 
             #   Readout pixels
             self.pixel_samples \
                 = charge_readout_tools.readout_pixels(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.pixels,
+                    self.read_params.pixels,
                     stats_output=stats_output,
                     )
 
         #   Anode grid
-        elif self.params.charge_readout_name=='AnodeGridD':
+        elif self.read_params.charge_readout_name=='AnodeGridD':
 
             self.anode_grid_samples \
                 = charge_readout_tools.readout_anode_grid(
                     self.drifted_track['r'],
                     self.drifted_track['num_e'],
-                    self.params.anode_grid,
+                    self.read_params.anode_grid,
                     stats_output=stats_output,
                     )
 
@@ -322,14 +324,15 @@ class Track:
 
 def save_track(full_file_name, track):
     """
-    Saves track to npz and pickle files with full_file_name
+    Saves track to npz and pickle files with full_file_name.
 
-    Track could be penelope file, or perhaps an already parsed track which
-    has been compressed, losing attributes.  This is all a bit ugly.
-    If track is dictionary it is treated as a penelope_track, otherwise
-    treated as normal track object.
+    Here track is either a dictionary containing a raw penelope track
+    (or track from G4 or some other source), or the standard track object.
+
+    TODO: This is all a bit ugly, and should be revisited.  Probably:
+        + Move penelop parts moved to penelope tools.
+        + This becomes method; only current use case is following compression.
     TODO: save/read "raw" penelope tracks in normal format, with raw_track
-    TODO: make method of track?
     """
 
     import pickle

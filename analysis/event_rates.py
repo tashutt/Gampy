@@ -82,9 +82,9 @@ events = events_tools.Events(os.path.join(paths['root'], sim_file_name),
 
 
 with open(os.path.join(paths['root'], geo_file_name) + '.pickle', 'rb') as f:
-    geo_params = pickle.load(f)
+    sims_params = pickle.load(f)
 
-params = params_tools.ResponseParams(geo_params=geo_params)
+params = params_tools.ResponseParams(sims_params=sims_params)
 
 events.apply_detector_response()
 events.pileup_analysis()
@@ -101,29 +101,29 @@ ACD_THRESHOLD = 15
 
 def print_results(events,decision_tree_results, pileup_stats):
     TIME = events.truth['time'][-1]
-    AREA = ak.max(events.truth_hits['cell']) * events.params.cells['area'] / 2
+    AREA = ak.max(events.truth_hits['cell']) * events.read_params.cells['area'] / 2
     print(f"Sim duration {TIME:2.2f} s| Detector Area {AREA:2.2f} m^2")
     print(f"{'Stage':<20}{'Count':<8}{'Rate (s^-1 m^-2)':<17}{'Percentage':<10}")
     print("-" * 55)
 
     initial_count = len(decision_tree_results['Incoming Particles'])+1
     results_dict = {}
-    
 
-    
+
+
     for name, lst in decision_tree_results.items():
-        if isinstance(lst, list):  
+        if isinstance(lst, list):
             survived_count = len(lst)
             rate = round(survived_count / TIME / AREA, 2)
             survived_percentage = (survived_count / initial_count) * 100
             print(f"{name + ':':<25} {survived_count:<5} {rate:<15} ({survived_percentage:.2f}%)")
-                
+
             results_dict[name] = {
                 "count": survived_count,
                 "percentage": f"{survived_percentage:.2f}%",
                 "rate": rate
             }
-            
+
     # Adding pileup statistics to the results
     print("-"*25)
     for key, value in pileup_stats.items():
@@ -131,11 +131,11 @@ def print_results(events,decision_tree_results, pileup_stats):
         results_dict[key] = value
 
     return results_dict
-    
+
 
 def acceptance_rejection(events,
-                         particle_type = "photon_cos", 
-                           good_gamma_min_ene_kev=100, 
+                         particle_type = "photon_cos",
+                           good_gamma_min_ene_kev=100,
                            good_gamma_max_ene_kev=10_000):
 
     acd_energy = events.truth['front_acd_energy'] + events.truth['back_acd_energy']
@@ -183,16 +183,16 @@ def acceptance_rejection(events,
         num_of_hits_in_this_event = len(ak.mask(det, det>1))
         if num_of_hits_in_this_event > MIN_NEEDED_HITS:
             det_with_enough_hits.append(p_energy)
-        
+
         # has the acd been activated?
         if acd_activ[event_id]:
             continue
         all_requirements_met.append(p_energy)
 
         # only detectable gammas survive to this point
-        # now we find if they coincide with any of the cell Light-ups 
+        # now we find if they coincide with any of the cell Light-ups
         # Iterate through each cell hit in the current event
-        
+
         event_has_overlap = False
         in_good_coordinates = sum(events.measured_hits['_good_mask'][:event_id])
         event_has_overlap = in_good_coordinates in events.measured_hits['pileup_detected']
@@ -201,7 +201,7 @@ def acceptance_rejection(events,
             seen_gammas.append(p_energy)
             # print(det)
             # print(f"Seen a {p_energy:2.1f} keV gamma! - {num_of_hits_in_this_event} hits\n")
-        
+
     return {
         "Incoming Particles": cosmic_photons,
         "Good Energy Range": good_energy_range,
@@ -212,11 +212,11 @@ def acceptance_rejection(events,
         "Seen Gammas": seen_gammas
     }
 
-def pileup_statistics_function(events, 
+def pileup_statistics_function(events,
                                decision_tree_results,
                                ):
-    
-    velocity = events.params.charge_drift['velocity']
+
+    velocity = events.read_params.charge_drift['velocity']
     SIM_TIME = max(events.truth['time'])
     NUM_CELLS = ak.max(events.truth_hits['cell'])
     CELL_H = 0.175
@@ -224,10 +224,10 @@ def pileup_statistics_function(events,
     clearing_time = CELL_H / velocity
     good_ones = len(decision_tree_results["Met All Req.(ACD=0)"])
     if good_ones:
-        pileup = (good_ones - len(decision_tree_results["Seen Gammas"]))/good_ones 
+        pileup = (good_ones - len(decision_tree_results["Seen Gammas"]))/good_ones
     else:
         pileup = 0
-    
+
     pileup_stats = {
         "clearing_time_ms": clearing_time * 1000,
         "pileup":pileup * 100
@@ -249,7 +249,7 @@ MIN_NEEDED_HITS = 3
 
 def calculate_detection_rates_measured_hits(events, particle="photon_cos"):
     TIME = events.truth['time'][-1]
-    AREA = ak.max(events.truth_hits['cell']) * events.params.cells['area'] / 2
+    AREA = ak.max(events.truth_hits['cell']) * events.read_params.cells['area'] / 2
 
     # Applying the good mask to filter out the relevant hits
     good_mask = events.measured_hits["_good_mask"]
@@ -258,7 +258,7 @@ def calculate_detection_rates_measured_hits(events, particle="photon_cos"):
     else:
         name_filter = events.truth["particle_name"] == particle
     name_mask = name_filter[good_mask]
-    
+
     filtered_measured_hits = events.measured_hits
 
     # Rate of particles that are detected
@@ -277,12 +277,12 @@ def calculate_detection_rates_measured_hits(events, particle="photon_cos"):
 
     # Rate after ACD veto, not piled up, and enough hits
     enough_hits = ak.sum(filtered_measured_hits['cell'] > MIN_NEEDED_HITS, axis=1) > 0
-    rate_acd_not_piled_up_enough_hits = np.sum(~acd_activ[good_mask][name_mask] 
+    rate_acd_not_piled_up_enough_hits = np.sum(~acd_activ[good_mask][name_mask]
                                                & not_piled_up[name_mask] & enough_hits[name_mask]) / TIME / AREA
 
     # Rate after ACD veto, not piled up, enough hits, and full energy contained
     full_energy_contained = ~events.truth['missing_energy'][good_mask][name_mask]
-    rate_acd_not_piled_up_enough_hits_full_energy = np.sum(~acd_activ[good_mask][name_mask] 
+    rate_acd_not_piled_up_enough_hits_full_energy = np.sum(~acd_activ[good_mask][name_mask]
                                                            & not_piled_up[name_mask] & enough_hits[name_mask] & full_energy_contained) / TIME / AREA
 
     detection_rates = {

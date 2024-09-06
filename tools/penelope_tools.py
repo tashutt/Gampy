@@ -39,8 +39,8 @@ def simple_penelope_track_maker(p,
     NOTE: What deposited energy is used to generate electron should be
     checked.
 
-    Improvement: more rational handling of material and params - material
-        should be in params
+    Improvement: more rational handling of material and read_params - material
+        should be in read_params
 
     11/7/21 TS port from matlab
     """
@@ -58,13 +58,13 @@ def simple_penelope_track_maker(p,
     #   parsed python files and removed until this batch is completed.
     max_num_tracks_batch = 50
 
-    #   Material and params to give recombination.  This should beis really not
-    #   handled well - material shoul be in params
+    #   Material and read_params to give recombination.  This is really not
+    #   handled well - material shoul be in read_params
     material = 'LAr'
     if 'material' in steering:
         material = steering['material']
-    import params_tools
-    params = params_tools.ResponseParams()
+    import readout_tools
+    read_params = readout_tools.Params()
 
     #   Particles. 1=electron, 2=photon, 3=positron
     #   Set to electrons if missing
@@ -193,7 +193,7 @@ def simple_penelope_track_maker(p,
                 track = parse_penelope_file(
                     p2,
                     full_file_name,
-                    params,
+                    read_params,
                     random_initial_direction=random_initial_direction,
                     reset_origin=reset_origin,
                     compression_bin_size=compression_bin_size
@@ -210,7 +210,7 @@ def simple_penelope_track_maker(p,
                     + '_'
                     + datetime.now().strftime('D%Y%m%d_T%H%M%f')
                     )
-                electron_track_tools.save_track(
+                track.save_track(
                     os.path.join(p2, out_file_name),
                     track
                     )
@@ -225,7 +225,7 @@ def simple_penelope_track_maker(p,
 def parse_penelope_file(
         p_data,
         full_file_name,
-        params,
+        read_params,
         random_initial_direction=True,
         reset_origin=True,
         compression_bin_size=200e-6
@@ -270,10 +270,10 @@ def parse_penelope_file(
 
     #   define w
     #   Fudge was some early rough kludge; should be revisited. Also,
-    #   badly implemented - fudge should be in params also.
+    #   badly implemented - fudge should be in read_params also.
     #   TODO[ts]: Clean up
     w_fudge = 0.8
-    w = params.material['w'] * w_fudge
+    w = read_params.material['w'] * w_fudge
 
     # print('\r  file  ' + str(nf) + ' ', end='')
 
@@ -322,7 +322,7 @@ def parse_penelope_file(
     # penelope_data['particel_age'] = data_block[:, 13]
 
     # penelope_data['charges'] = np.fix(penelope_data['delta_energy'] / w)
-        # * (1 - params.materials['recombination'])
+        # * (1 - read_params.materials['recombination'])
 
     #   Now Derive things
     penelope_data['id'] = max(penelope_data['particle_id'])
@@ -342,7 +342,7 @@ def parse_penelope_file(
         & (penelope_data['delta_energy'] > w)
     num_e = np.round(np.fix(
         penelope_data['delta_energy']
-        / w * (1 - params.material['recombination'])
+        / w * (1 - read_params.material['recombination'])
         ) * active_interactions).astype(int)
     deposits_mask = num_e>0
     num_e = num_e[deposits_mask]
