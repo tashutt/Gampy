@@ -8,14 +8,14 @@ described by r, the location of charges and num_e, the number of charges
 at each r.  For each type of readout, a description of the sensos
 must also be provided, which can be created in params_tool.
 
-
-TODO: Implement coarse trigger for pixel chips
+TODO: Implement coarse triggers for pixel chips
 TODO: Revive hexagonal cells.  Chip array readout. Update naming: x,y -> 0,1
 TODO: Revisit focusing, add de-focussing to output
-TODO[ts]: Implement overall z timing
-TODO[ts]: Implement signals spanning cells.
-TODO[ts]: Integrate Bahrudin's code???
+TODO[ts]: Implement overall z timing method
+TODO[ts]: Implement signals spanning cells
 TODO[ts]: Add cube method to flesh out pixel data for ML
+TODO[ts]: Integrate Bahrudin's code???
+
 
 @author: tshutt
 """
@@ -61,7 +61,7 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
 
     import numpy as np
 
-    import geometry_tools
+    import readout_tools
 
     #   Find coarse voxels defined by coarse_sensors that contain charge
     voxels = find_voxels(r, coarse_sensors)
@@ -79,7 +79,7 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
 
         #   For these entries r, change to pixel chip coordinates
         #   (note the called routine does not alter the calling r)
-        r_chip = geometry_tools.cell_to_chip_coordinates(
+        r_chip = readout_tools.cell_to_chip_coordinates(
             r[:, mask],
             voxel_indices[:, None],
             coarse_sensors['centers']
@@ -90,8 +90,8 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
 
         #   Focus electrons uniformly onto pixels
         #   TODO: review focus_factor.  Need to add defocussing
-        r_chip[0, :] = r_chip[0, :] * pixel_sensors['focus_factor']
-        r_chip[1, :] = r_chip[1, :] * pixel_sensors['focus_factor']
+        # r_chip[0, :] = r_chip[0, :] * pixel_sensors['focus_factor']
+        # r_chip[1, :] = r_chip[1, :] * pixel_sensors['focus_factor']
 
         #   Readout out pixels for these r
         chip_samples = readout_pixels(
@@ -107,7 +107,7 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
         #   Transform pixel centers back to cell coordinates
         if triggered_output:
             r_triggered_this_chip \
-                = geometry_tools.cell_to_chip_coordinates(
+                = readout_tools.cell_to_chip_coordinates(
                     chip_samples['r_triggered'],
                     voxel_indices[:, None],
                     coarse_sensors['centers'],
@@ -115,7 +115,7 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
                     )
         if raw_output:
             r_raw_this_chip \
-                = geometry_tools.cell_to_chip_coordinates(
+                = readout_tools.cell_to_chip_coordinates(
                     chip_samples['r_raw'],
                     voxel_indices[:, None],
                     coarse_sensors['centers'],
@@ -633,7 +633,7 @@ def readout_induction_grid_span(u, z, num_e, u_centers, z_edges):
 
     return samples_raw
 
-def readout_anode_grid(r, num_e, anode_grid_sensors):
+def readout_anode_grid(r, num_e, anode_grid_sensors, stats_output=False):
     """
     Readout of drifted tracks with 1D anode (i.e., non inductive) grid,
         with "x" wires which lie along the y axis.
@@ -671,11 +671,16 @@ def readout_anode_grid(r, num_e, anode_grid_sensors):
 
     import numpy as np
 
+    #   Warning that stats_output not yet doing anything
+    if stats_output:
+        print('Warning in charge_readout_tools - stats_output '
+              + 'not yet functional for readout_anode_grid')
+
     #   Find centers and edges that span data
-    ix_min, ix_max = find_span(r[0, :], anode_grid_sensors['edges'])
-    x_edges = anode_grid_sensors['edges'][ix_min : ix_max + 1]
+    idx = find_span(r[0, :], anode_grid_sensors['edges'])
+    x_edges = anode_grid_sensors['edges'][np.arange(idx[0], idx[-1] + 1)]
     x_centers = x_edges[0:-1] + np.diff(x_edges[0:2]) / 2
-    x_indices = np.arange(ix_min, ix_max)
+    x_indices = idx[:-1]
 
     #   Create z sampling, based on anodge grid pitch
     z_edges, z_centers \
@@ -824,7 +829,7 @@ def find_voxels(r, coarse_sensors):
     return voxels
 
 def find_span(u, sensor_boundaries_1d):
-    """ For array of locations, u, finds min and max indices of
+    """ For array of locations, u, finds array of indices of
     sensor_boundaries_1d that minimally span u. """
 
     import numpy as np
