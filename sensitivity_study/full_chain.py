@@ -13,14 +13,15 @@ combine everything (?)
 import sys, os
 sys.path.append('tools')
 
-import params_tools
-import file_tools
-import events_tools 
 import subprocess
 import numpy as np
 import awkward as ak
 import time
 import pickle
+
+import sims_tools
+import file_tools
+import events_tools
 
 
 import argparse
@@ -60,13 +61,13 @@ for arg, value in args_dict.items():
 from cosmic_flux import cosmic_flux_gen
 
 STUDY = "Optimistic"
-base_directory = f'backgrounds_{STUDY}' 
+base_directory = f'backgrounds_{STUDY}'
 i = 1
 while True:
     directory_name = f'{base_directory}{i}'
     full_path = os.path.join(os.getcwd(), directory_name)
     if not os.path.exists(full_path):
-        break  
+        break
     i += 1
 
 paths = {}
@@ -81,79 +82,79 @@ energy_low = int(args.eng.split('-')[0])
 energy_high = int(args.eng.split('-')[-1])
 only_photons = bool(args.only_photons)
 
-if os.path.exists(paths['root']):    
+if os.path.exists(paths['root']):
     subprocess.run(['rm', '-rf', paths['root']])
-          
+
 os.makedirs(paths['root'], exist_ok=True)
 os.makedirs(paths['data'], exist_ok=True)
 
 #   Load default geo params
-geo_params = params_tools.GeoParams(detector_geometry='geomega',
+sims_params = sims_tools.Params(detector_geometry='geomega',
                                     cell_geometry='hexagonal')
 
 
 
 if STUDY == "Optimistic":
-    geo_params.inputs['anode_planes']['thickness'] = 0.75e-3
-    geo_params.inputs['cathode_plane']['thickness'] = 0.75e-3
-    geo_params.inputs['vessel']['wall_thickness'] = 2e-3
-    geo_params.inputs['cells']['wall_thickness'] = 0.75e-4
+    sims_params.inputs['anode_planes']['thickness'] = 0.75e-3
+    sims_params.inputs['cathode_plane']['thickness'] = 0.75e-3
+    sims_params.inputs['vessel']['wall_thickness'] = 2e-3
+    sims_params.inputs['cells']['wall_thickness'] = 0.75e-4
 
 elif STUDY == "Neutral":
-    geo_params.inputs['anode_planes']['thickness'] = 1.5e-3
-    geo_params.inputs['cathode_plane']['thickness'] = 1.5e-3
-    geo_params.inputs['vessel']['wall_thickness'] = 3e-3
-    geo_params.inputs['cells']['wall_thickness'] = 2e-4
+    sims_params.inputs['anode_planes']['thickness'] = 1.5e-3
+    sims_params.inputs['cathode_plane']['thickness'] = 1.5e-3
+    sims_params.inputs['vessel']['wall_thickness'] = 3e-3
+    sims_params.inputs['cells']['wall_thickness'] = 2e-4
 
 elif STUDY == "Pessimistic":
-    geo_params.inputs['anode_planes']['thickness'] = 3e-3
-    geo_params.inputs['cathode_plane']['thickness'] = 3e-3
-    geo_params.inputs['vessel']['wall_thickness'] = 4e-3
-    geo_params.inputs['cells']['wall_thickness'] = 5e-4
+    sims_params.inputs['anode_planes']['thickness'] = 3e-3
+    sims_params.inputs['cathode_plane']['thickness'] = 3e-3
+    sims_params.inputs['vessel']['wall_thickness'] = 4e-3
+    sims_params.inputs['cells']['wall_thickness'] = 5e-4
 
 
 # modify any parameter
-geo_params.inputs['vessel']['r_outer'] = args.vessel_r_outer #1.85
-#geo_params.inputs['vessel']['wall_thickness'] = args.vessel_wall_thickness
-#geo_params.inputs['vessel']['lar_min_radial_gap'] = 0.05 #what is this param?
-geo_params.inputs['cells']['height'] = args.cell_h
-#geo_params.inputs['cells']['flat_to_flat'] = 0.175 # what is this parameter?
-#geo_params.inputs['cells']['wall_thickness'] = args.cell_wall_thickness
-geo_params.inputs['acd'] = {'thickness': args.acd_thickness}
-geo_params.inputs['calorimeter']['thickness'] = args.calorimeter_thickness
-geo_params.inputs['shield']['thickness'] = args.shield_thickness
+sims_params.inputs['vessel']['r_outer'] = args.vessel_r_outer #1.85
+#sims_params.inputs['vessel']['wall_thickness'] = args.vessel_wall_thickness
+#sims_params.inputs['vessel']['lar_min_radial_gap'] = 0.05 #what is this param?
+sims_params.inputs['cells']['height'] = args.cell_h
+#sims_params.inputs['cells']['width'] = 0.175 # what is this parameter?
+#sims_params.inputs['cells']['wall_thickness'] = args.cell_wall_thickness
+sims_params.inputs['acd'] = {'thickness': args.acd_thickness}
+sims_params.inputs['calorimeter']['thickness'] = args.calorimeter_thickness
+sims_params.inputs['shield']['thickness'] = args.shield_thickness
 
-geo_params.calculate()
+sims_params.calculate()
 
 geo_file_name = file_tools.write_geo_files(
     paths['root'],
-    geo_params,
+    sims_params,
     values_id=4
     )
 
 
 source_file_path =  cosmic_flux_gen.generate_cosmic_simulation(
-                                            geo_file_name, 
-                                            Inclination=inc, 
-                                            Altitude=alt, 
-                                            Elow=energy_low, 
-                                            Ehigh=energy_high, 
-                                            num_triggers=num_events, 
+                                            geo_file_name,
+                                            Inclination=inc,
+                                            Altitude=alt,
+                                            Elow=energy_low,
+                                            Ehigh=energy_high,
+                                            num_triggers=num_events,
                                             output_dir=paths['root'],
                                             only_photons=only_photons)
-                                
-# get the name from the path 
+
+# get the name from the path
 source_file_name = os.path.basename(source_file_path).replace(".sim","")
 
-# run cosima with the generated source file 
+# run cosima with the generated source file
 print("\n\nThe source file name is:",source_file_name)
 time.sleep(1)
 # go into the root directory
 os.chdir(paths['root'])
-subprocess.run(['pwd']) 
+subprocess.run(['pwd'])
 
 cosima_output = subprocess.run(['cosima', source_file_name], capture_output=True)
-cosima_output = cosima_output.stdout.decode('utf-8')   
+cosima_output = cosima_output.stdout.decode('utf-8')
 useful_output = cosima_output.split("Summary for run SpaceSim")[-1]
 
 #-------
@@ -165,12 +166,12 @@ for line in useful_output.split('\n'):
             sim_particle_numbers[k.strip()]=float(v.strip("sec").strip())
         else:
             sim_particle_numbers[k.strip()]=int(v.strip())
-                
-                 
+
+
 print(useful_output,'\n\n\n\n-----------')
 inc_id_tag = ".inc1.id1"
 sim_file_name = source_file_name.split('.')[0] + inc_id_tag
-           
+
 # use numpy to save the events.truth dictionary to a file
 np.save('data/sim_settings.npy', args_dict)
 np.save('data/sim_particle_numbers.npy', sim_particle_numbers)
@@ -191,45 +192,45 @@ if args.activation:
     if args.recompute_activation:
         print("WARNING: recompute_activation is True. This will take a long time.")
         step_1 = cosmic_flux_gen.generate_cosmic_simulation(
-                                        geo_full_file_name=geo_file_name, 
+                                        geo_full_file_name=geo_file_name,
                                         activation=True,  # Set activation to True
-                                        Inclination=inc, 
-                                        Altitude=alt, 
-                                        Elow=energy_low, 
-                                        Ehigh=energy_high, 
-                                        duration=0.1, 
+                                        Inclination=inc,
+                                        Altitude=alt,
+                                        Elow=energy_low,
+                                        Ehigh=energy_high,
+                                        duration=0.1,
                                         output_dir=paths['root'])
         step_2 = cosmic_flux_gen.calculate_activation(
-                                        geo_file_name, 
-                                        Inclination=inc, 
-                                        Altitude=alt, 
-                                        Elow=energy_low, 
-                                        Ehigh=energy_high, 
+                                        geo_file_name,
+                                        Inclination=inc,
+                                        Altitude=alt,
+                                        Elow=energy_low,
+                                        Ehigh=energy_high,
                                         output_dir=paths['root'])
     step_3 = cosmic_flux_gen.activation_events(
-                                    geo_file_name, 
-                                    Inclination=inc, 
-                                    Altitude=alt, 
-                                    Elow=energy_low, 
-                                    Ehigh=energy_high, 
-                                    duration=sim_time, 
+                                    geo_file_name,
+                                    Inclination=inc,
+                                    Altitude=alt,
+                                    Elow=energy_low,
+                                    Ehigh=energy_high,
+                                    duration=sim_time,
                                     output_dir=paths['root'],
                                     dat_name = activation_file_name)
-    
+
     os.chdir(paths['root'])
-    subprocess.run(['pwd']) 
+    subprocess.run(['pwd'])
     if args.recompute_activation:
         #----step 1----#
         step1_file_name = os.path.basename(step_1).replace(".sim","")
         print("\n\nThe step 1 file name is:",step1_file_name)
         cosima_output1 = subprocess.run(['cosima', step1_file_name], capture_output=True)
-        cosima_output1 = cosima_output1.stdout.decode('utf-8')   
+        cosima_output1 = cosima_output1.stdout.decode('utf-8')
 
         #----step 2----#
         step2_file_name = os.path.basename(step_2).replace(".sim","")
         print("\n\nThe step 2 file name is:",step2_file_name)
         cosima_output2 = subprocess.run(['cosima', step2_file_name], capture_output=True)
-        cosima_output2 = cosima_output2.stdout.decode('utf-8')   
+        cosima_output2 = cosima_output2.stdout.decode('utf-8')
     else:
         if activation_file_name is None:
             print(" *** WARNING: activation_file_name is None. Using default. ***")
@@ -245,16 +246,16 @@ if args.activation:
     step3_file_name = os.path.basename(step_3).replace(".sim","")
     print("\n\nThe step 3 file name is:",step3_file_name)
     cosima_output3 = subprocess.run(['cosima', step3_file_name], capture_output=True)
-    cosima_output3 = cosima_output3.stdout.decode('utf-8')   
-    useful_output = cosima_output3.split("Summary for run ")[-1]  
+    cosima_output3 = cosima_output3.stdout.decode('utf-8')
+    useful_output = cosima_output3.split("Summary for run ")[-1]
     print(useful_output,'\n\n\n\n-----------')
     inc_id_tag = ".inc1.id1"
     activation_file_name = step3_file_name.split('.')[0] + inc_id_tag
 
 
-file_a_path = sim_file_name + '.sim'  
+file_a_path = sim_file_name + '.sim'
 file_b_path = activation_file_name + '.sim'
-output_path = f'background_{sim_time}.sim' 
+output_path = f'background_{sim_time}.sim'
 
 print(f"Inserting content from '{file_b_path}' into '{file_a_path}' and saving as '{output_path}'")
 
@@ -263,7 +264,7 @@ def find_se_en_content(file_path):
     content = []
     with open(file_path, 'r') as file:
         for line in file:
-            if line.startswith("CC"):  
+            if line.startswith("CC"):
                 continue
             if "SE" in line:
                 capture = True
@@ -279,14 +280,14 @@ with open(file_a_path, 'r') as file_a, open(output_path, 'w') as output_file:
     for line in file_a:
         if "EN" in line:
             output_file.writelines(content_to_insert)
-            break  
+            break
         output_file.write(line)
     for line in file_a:
         output_file.write(line)
 
-if os.name == 'posix': 
+if os.name == 'posix':
     subprocess.run(['rm', file_a_path, file_b_path])
-elif os.name == 'nt': 
+elif os.name == 'nt':
     subprocess.run(['del', file_a_path, file_b_path], shell=True)
 
 sim_file_name = output_path
@@ -297,7 +298,7 @@ print(f"Analyzing {sim_file_name}")
 in_energy = 1000
 in_angle = 1.0
 in_time = float(sim_file_name.split('background_')[1].replace('.sim', ''))
-print("Time", in_time) 
+print("Time", in_time)
 print('Energy, Angle:', in_energy, in_angle)
 
 sim_file_name = sim_file_name.strip('.sim')
@@ -340,38 +341,38 @@ events = events_tools.Events(sim_file_path.strip('.sim'),
 
 # Load geometry parameters
 with open(os.path.join(paths['root'], geo_file_name) + '.pickle', 'rb') as f:
-    geo_params = pickle.load(f)
+    sims_params = pickle.load(f)
 
 # Set up and apply detector response
-params = params_tools.ResponseParams(geo_params=geo_params)
+params = params_tools.ResponseParams(sims_params=sims_params)
 
-events.params.inputs['coarse_grids']['signal_fraction'] = 0.9
+events.read_params.inputs['coarse_grids']['signal_fraction'] = 0.9
 
 if STUDY == "Optimistic":
-    events.params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
-    events.params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
-    events.params.inputs['light']['collection'] = 0.3
-    events.params.inputs['material']['sigma_p'] = 0.04
-    events.params.inputs['coarse_grids']['noise'] = 10
+    events.read_params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
+    events.read_params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
+    events.read_params.inputs['light']['collection'] = 0.3
+    events.read_params.inputs['material']['sigma_p'] = 0.04
+    events.read_params.inputs['coarse_grids']['noise'] = 10
 
 elif STUDY == "Neutral":
-    events.params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
-    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
-    events.params.inputs['light']['collection'] = 0.1
-    events.params.inputs['material']['sigma_p'] = 0.05
-    events.params.inputs['coarse_grids']['noise'] = 20
+    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
+    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
+    events.read_params.inputs['light']['collection'] = 0.1
+    events.read_params.inputs['material']['sigma_p'] = 0.05
+    events.read_params.inputs['coarse_grids']['noise'] = 20
 
 elif STUDY == "Pessimistic":
-    events.params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
-    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
-    events.params.inputs['light']['collection'] = 0.05
-    events.params.inputs['material']['sigma_p'] = 0.06
-    events.params.inputs['coarse_grids']['noise'] = 40
+    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
+    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
+    events.read_params.inputs['light']['collection'] = 0.05
+    events.read_params.inputs['material']['sigma_p'] = 0.06
+    events.read_params.inputs['coarse_grids']['noise'] = 40
 
-events.params.calculate()
+events.read_params.calculate()
 
 truth = events.truth
-hits  = events.truth_hits 
+hits  = events.truth_hits
 
 # 2 m2 detector
 R_max = np.sqrt(2/np.pi)
@@ -381,10 +382,10 @@ mask = np.zeros(len(truth), dtype=bool)
 mask[len_mask] = R < R_max
 
 
-print("Masking events", len(truth), "to", sum(mask), 
+print("Masking events", len(truth), "to", sum(mask),
       f"for R < {R_max:.3f} m. That's {sum(mask)/len(truth)*100:.2f}% of the events.")
 
-events.truth = truth[mask]    
+events.truth = truth[mask]
 events.truth_hits = hits[mask]
 
 events.apply_detector_response()
