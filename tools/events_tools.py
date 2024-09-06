@@ -12,7 +12,9 @@ class Events:
     scatters dimension. Dimensions are [scatters, event] or
     [space, scatters, event]
 
-    When first called, returns truth, truth_hits and meta
+    When first called, returns truth, truth_hits and meta.  Also sets
+    default readout parameters and attaches those to object, with
+    GAMPixG charge readout.
 
     TODO: When relevant, add selection of charge readout.  Follow
         approach in electron_track_tools, including defined
@@ -22,36 +24,51 @@ class Events:
         pointing error, CKD ordering, etc.  These neither well
         checked nor reviewed
 
-    Units mks and keV, requiring a conversion from Megalib cm and keV
+    Units are mks and keV, requiring a conversion from Megalib cm and keV
     """
     def __init__(self,
-                 full_sim_file_name,
-                 full_geo_file_name,
+                 sim_file_name,
+                 geometry_settings_file_name,
                  num_events_to_read=1e10,
                  read_sim_file=False,
-                 write_events_files=True
+                 write_events_files=True,
+                 cell_settings_file_name='default',
                  ):
         """
         Reads events from .hdf5 file if found, otherwise from
         .sim file and writes hdf5 files unless directed not to.
+        geometry_settings_file_name_name is the .yaml file with geometry
+        settings, or if missing, the .source file.
+        Generates tpc_cell_parameters, usgin settings file or defaults, and
+        makes these a method of the object.
         """
 
         import os
-        import pickle
         import sys
 
         import file_tools
-        import params_tools
+        import sims_tools
+        import readout_tools
         import awkward as ak
 
-        #   If .hdf5 files present, read those
-        if os.path.isfile(full_sim_file_name + '.hdf5') \
-            and not read_sim_file:
-            print('Reading .hdf5 files')
-            self.meta, self.truth, self.truth_hits \
-                = file_tools.read_events_file(full_sim_file_name)
+        #   Get geometry_params
+        self.sims_params \
+            = sims_tools.Params(geometry_settings_file_name)
 
-            #   Trim arrays to only contain requested # o events
+        #   This flag prevents updating sims_params
+        self.sims_params.live = False
+
+        #   If .hdf5 files present, read those
+        if os.path.isfile(sim_file_name.replace('.sim', '.hdf5')) \
+            and not read_sim_file:
+
+            print('Reading .hdf5 files')
+
+            #   Read .hdf5 truth and truth hits, and pickle meta files
+            self.truth, self.truth_hits, self.meta \
+                = file_tools.read_events_file(sim_file_name)
+
+            #   Trim arrays to only contain requested number of events
             if num_events_to_read < self.meta['num_events']:
                 self = trim_events(self, num_events_to_read)
 
@@ -61,63 +78,60 @@ class Events:
                       + ' of ' + str(num_events_to_read) + ' requested'
                       )
 
-        #   If not, read geo_params from pickle, then
-        #   read .sim file, and write .h5 files unless told not to
-        elif os.path.isfile(full_sim_file_name + '.sim'):
+        #   If not, read and parse .sim file.  Then write .h5 files
+        #   unless told not to.
+        #   Load geometry description, preferably from .yaml input file,
+        #   but for backwards compatabilty if no .yaml file, read minimal
+        #   cell description from .source file.
+        elif os.path.isfile(sim_file_name):
 
             print('Reading .sim file')
-
-            #   Load geo_params that were generated for Cosima
-            with open(full_geo_file_name + '.pickle', 'rb') as f:
-                geo_params = pickle.load(f)
-
-            #   This flag prevents updating geo_params
-            geo_params.live = False
 
             #   Now read and parse .sim file
             self.truth, self.truth_hits, self.meta \
                 = file_tools.read_events_from_sim_file(
-                    full_sim_file_name,
-                    geo_params,
+                    sim_file_name,
+                    self.sims_params,
                     num_events_to_read,
                     )
 
             #   Add file names, number of events, geo_parms to meta data
-            data_path, self.meta['sim_file_name'] \
-                = os.path.split(full_sim_file_name)
-            _, self.meta['geo_file_name'] \
-                = os.path.split(full_geo_file_name)
+            self.meta['sim_file_name'] = sim_file_name
+            self.meta['geometry_settings_file_name'] \
+                = geometry_settings_file_name
             self.meta['num_events'] = ak.num(self.truth['num_hits'], axis=0)
-            self.meta['geo_params'] = geo_params
 
             #   Write .hdf5 files
             if write_events_files:
                 print('Writing .hdf5 files')
-                file_tools.write_events_file(self, full_sim_file_name)
+                file_tools.write_events_file(self, sim_file_name)
 
         #   Otherwise file not found - error
         else:
             sys.exit('Error in events tool: File ' \
-                     + full_sim_file_name + '.sim not found')
+                     + sim_file_name + '.sim not found')
 
         #   Generate default response params, and assign to events
-        self.params = params_tools.ResponseParams(
-            geo_params=self.meta['geo_params']
+        self.read_params = readout_tools.Params(
+            settings_file_name=cell_settings_file_name,
+            charge_readout_name='GAMPixG',
+            cells=self.sims_params.cells,
             )
 
-    def reset_params(self, charge_readout='GAMPixG'):
-        """ reset params with new charge readout scheme,
-        removing measured things.
-        NOTE: this here only as placeholder until charge readout
-        is implemented for events
+    def reset_params(self):
+        """ Reset readout parameters to default values.
+            Charge readout is GAMPixG
+            Removes measured events, cones.
+            NOTE: this here only as placeholder until charge readout
+            is implemented for events
         """
 
-        import params_tools
+        import readout_tools
 
-        #   Find fresh params
-        self.params = params_tools.ResponseParams(
-            charge_readout,
-            self.geo_params,
+        #   Create fresh set of readout params
+        self.read_params = readout_tools.Params(
+            charge_readout_name='GAMPixG',
+            cells=self.sims_params.cells,
             )
 
         #   Remove attributes that depend on params
@@ -132,11 +146,11 @@ class Events:
 
         import response_tools
 
+        #   Calculate cell params
+        self.read_params.calculate()
+
         #   Apply response
         self = response_tools.apply_detector_response(self)
-
-        # #   Save parameters used in meta data
-        # self.meta['params'] = params
 
     ###### PILEUP START ######
     def pileup_analysis(self, drift_len_via_diffusion_enabled=0):
@@ -147,7 +161,6 @@ class Events:
         TO consider: should this be implemented on the truth hits too?
         """
         import awkward as ak
-        import numpy as np
 
         self.drift_est_acc = 0.02
 
@@ -156,7 +169,7 @@ class Events:
 
         num_of_events = len(self.measured_hits['total_energy'])
         num_of_hits_in_event = ak.num(self.measured_hits['energy'])
-        velocity = self.params.charge_drift['velocity']
+        velocity = self.read_params.charge_drift['velocity']
 
         time_allocation = self._compute_time_allocation(
             drift_len_via_diffusion_enabled, num_of_events,
@@ -197,7 +210,7 @@ class Events:
     def _compute_timeframe(self, drift_enabled, hit_time, drift_time):
         if drift_enabled:
             delta_t = min(
-                self.drift_est_acc / self.params.charge_drift['velocity'],
+                self.drift_est_acc / self.read_params.charge_drift['velocity'],
                 drift_time
                 )
             return (hit_time + drift_time, hit_time + drift_time + delta_t)
@@ -206,7 +219,6 @@ class Events:
 
     def _compute_pileup_flag(self, time_allocation):
         import awkward as ak
-        import numpy as np
 
         pileup_detected = []
 
@@ -227,7 +239,6 @@ class Events:
         return ak.Array(pileup_detected)
 
     def _check_overlap(self, event_hits, event_id, cell_id, beg0, end0):
-        import awkward as ak
         import numpy as np
 
         events = {k: v for k, v in event_hits.items()
@@ -263,46 +274,53 @@ class Events:
 
     def reconstruct_events(self,
                         IN_VECTOR = None,
-                        LEN_OF_CKD_HITS = [3,4,5,6,7,8], 
+                        LEN_OF_CKD_HITS = [3,4,5,6,7,8],
                         use_truth_hits=False,
                         save_name=""):
-        """ 
-        Reconstructs the events using the measured hits. If use_truth_hits is True,
-        the truth hits are used instead.
+        """
+        Reconstructs the events using the measured hits.
+        If use_truth_hits is True, the truth hits are used instead.
         """
         import reconstruction_tools
 
-        db = reconstruction_tools.reconstruct(self,  
-                                            LEN_OF_CKD_HITS, 
+        db = reconstruction_tools.reconstruct(self,
+                                            LEN_OF_CKD_HITS,
                                             IN_VECTOR,
-                                            use_truth_hits, 
-                                            outside_mask=None, 
+                                            use_truth_hits,
+                                            outside_mask=None,
                                             MIN_ENERGY=0.1,
                                             filename=save_name)
-        
+
         self.reconstructed_data = db
 
     def train_classifier_on_self(self, database=None):
         """
         Trains a classifier on the reconstructed data
         Trainings should be done on more than one set of events
-        Training is using truth data to learn (in the output), 
+        Training is using truth data to learn (in the output),
         so it's cheating if it's used on itself [kind of]
         """
         import reconstruction_tools
 
         if database is None:
-            clf = reconstruction_tools.train_classifier(self.reconstructed_data,
-                                                        filename='classifier.pkl', 
-                                                        plot_confusion_matrix=True) 
+            clf = reconstruction_tools.train_classifier(
+                self.reconstructed_data,
+                filename='classifier.pkl',
+                plot_confusion_matrix=True
+                )
         else:
-            clf = reconstruction_tools.train_classifier(database,
-                                                        filename='a_major_classifier.pkl', 
-                                                        plot_confusion_matrix=True)
-        self.classifier = clf   
-        
+            clf = reconstruction_tools.train_classifier(
+                database,
+                filename='a_major_classifier.pkl',
+                plot_confusion_matrix=True
+                )
+        self.classifier = clf
 
-    def classify_reconstructed_events(self,save_name=None,load_classifier=None):
+
+    def classify_reconstructed_events(self,
+                                      save_name=None,
+                                      load_classifier=None
+                                      ):
         import joblib
         from scipy.optimize import curve_fit
         import matplotlib.pyplot as plt
@@ -313,8 +331,8 @@ class Events:
             classifier = self.classifier
         else:
             classifier = joblib.load(load_classifier)
-        
-        features = ['e_out_CKD', 'min_hit_distance', 'kn_probability', 
+
+        features = ['e_out_CKD', 'min_hit_distance', 'kn_probability',
                     'calculated_energy', 'num_of_hits', 'first_scatter_angle']
 
         df = self.reconstructed_data
@@ -325,14 +343,16 @@ class Events:
         def lorentzian(x, x0, gamma, A):
             return A * (gamma**2 / ((x - x0)**2 + gamma**2))
 
-        hist, bins = np.histogram(df.query("use==1").ARM, bins=50, range=(-10,10))
-        x = (bins[1:] + bins[:-1]) / 2  
+        hist, bins = np.histogram(df.query("use==1").ARM, bins=50,
+                                  range=(-10,10))
+        x = (bins[1:] + bins[:-1]) / 2
         y = hist
 
         popt, _ = curve_fit(lorentzian, x, y, p0=[0, 1, max(y)])
 
         plt.clf()
-        plt.hist(df.query("use==1").ARM, bins=50, range=(-10,10), alpha=0.6, label='ARM histogram')
+        plt.hist(df.query("use==1").ARM, bins=50, range=(-10,10),
+                 alpha=0.6, label='ARM histogram')
         plt.xlabel('ARM [degrees]')
         plt.ylabel('Counts')
         plt.title('ARM histogram')
@@ -340,7 +360,7 @@ class Events:
         plt.plot(x, lorentzian(x, *popt), label='Lorentzian fit', color='red')
 
         fwhm = 2 * popt[1]
-        plt.annotate(f'FWHM = {fwhm:.2f} degrees', xy=(0.1, 0.89), 
+        plt.annotate(f'FWHM = {fwhm:.2f} degrees', xy=(0.1, 0.89),
                     xycoords='axes fraction', fontsize=14)
 
         plt.legend()
@@ -349,17 +369,8 @@ class Events:
         plt.show()
         print(f"FWHM from fit: {fwhm:.2f}")
         ########################################
-        
+
         self.reconstructed_data = df
-
-
-
-
-
-
-
-
-
 
 
 def calculate_stats(
@@ -563,6 +574,8 @@ def calculate_stats(
 def trim_events(events, num_trimmed_events):
     """ Used when creating events instance, trims events structure to
     contain only first num_trimmed_events
+
+    TODO: make work with awkward arrays.
     """
 
     import numpy as np
@@ -576,27 +589,27 @@ def trim_events(events, num_trimmed_events):
 
     max_hits = np.max(events.truth['num_hits'][mask])
 
-    for key in events.truth.keys():
-        if events.truth[key].ndim==1:
-            events.truth[key] \
-                = events.truth[key][mask]
-        elif events.truth[key].ndim==2:
-            events.truth[key] \
-                = events.truth[key][0:max_hits, mask]
-        elif events.truth[key].ndim==3:
-            events.truth[key] \
-                = events.truth[key][:, 0:max_hits, mask]
+    for field in events.truth.fields:
+        if events.truth[field].ndim==1:
+            events.truth[field] \
+                = events.truth[field][mask]
+        elif events.truth[field].ndim==2:
+            events.truth[field] \
+                = events.truth[field][0:max_hits, mask]
+        elif events.truth[field].ndim==3:
+            events.truth[field] \
+                = events.truth[field][:, 0:max_hits, mask]
 
-    for key in events.truth_hits.keys():
-        if events.truth_hits[key].ndim==1:
-            events.truth_hits[key] \
-                = events.truth_hits[key][mask]
-        elif events.truth_hits[key].ndim==2:
-            events.truth_hits[key] \
-                = events.truth_hits[key][0:max_hits, mask]
-        elif events.truth_hits[key].ndim==3:
-            events.truth_hits[key] \
-                = events.truth_hits[key][:, 0:max_hits,  mask]
+    for field in events.truth_hits.keys():
+        if events.truth_hits[field].ndim==1:
+            events.truth_hits[field] \
+                = events.truth_hits[field][mask]
+        elif events.truth_hits[field].ndim==2:
+            events.truth_hits[field] \
+                = events.truth_hits[field][0:max_hits, mask]
+        elif events.truth_hits[field].ndim==3:
+            events.truth_hits[field] \
+                = events.truth_hits[field][:, 0:max_hits,  mask]
 
     events.meta['num_events'] = num_trimmed_events
 
