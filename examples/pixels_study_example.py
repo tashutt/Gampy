@@ -26,7 +26,7 @@ import sys
 import glob
 import matplotlib.pyplot as plt
 
-import electron_track_tools
+import tracks_tools
 import readout_studies
 
 #%% What to do
@@ -71,7 +71,7 @@ num_raw_electrons = np.zeros((
 files = glob.glob(os.path.join(p['tracks'], 'TrackE*.npz'))
 
 #   Load first track in folder
-track = electron_track_tools.Track(files[0].strip('.npz'))
+track = tracks_tools.Tracks(files[0].strip('.npz'))
 
 #%%   Loop over study cases and calculate
 
