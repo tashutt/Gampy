@@ -5,7 +5,7 @@ Collection of routines used to apply detector response to vectorized
 hit-level data.  Uses parameters defined by readout_tools.
 
 See also:
-Electron track level response: electron_track_tools
+Electron track level response: tracks_tools
 File io: sim_file_tools
 
 Signficant rewrite of original Matlab routines, initial port 8/10/2020

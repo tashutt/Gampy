@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Routines that define and prepare the geometry for the simulation, including
-the parameters class Params, and related geometry tools.
+Routines that define and prepare the geometry for the simulation, featuring
+the parameters class Params, and related functions.
 
 Note that any parameters not part of the simulation, such as wire grids
 dimensions, are not defined here.
@@ -16,67 +16,63 @@ calorimeter and shield added by sjett 8/10/23
 
 class Params():
     """
-    Create parameters object for geomega geometry according to settings, and
-        cell_geometry if supplied.
+    Creates Params object, a parametric description of the simulation
+    geometry.
 
-    Inputs:
-        settings_file_name - file with input settings.  default is
-            standard values in Gampy/settings
-        cell_geometry - 'rectangular' or 'hexagonal'. If supplied overides
-            values in settings file
+    inputs_source, all file names are full:
+        = 'geomega_defaults' - default input file for parameterized Geomega
+        =  file_name         - '.yaml' = input file for parameterized Geomega
+        =  file_name         - '.setup' = static Geomega file
+        = 'simple_cell'      - big vat simulation
+
+    cell_geometry - Geomega only. "rectangular" or "hexagonal".
+        Supersedes input file values.
+
+    cell_bounds  - simple_cell bounds array, shape [3, 2].
+        Defaults to simple_cell, a 1 m^3 cube with +z wall in x-y plane.
+        Warning: must be buffered to cover at least one spacing of
+        most coarse sensors
+
+    Parameterized Geomega geometry has .calculate() method to produce
+    outputs from inputs.  Changes to parameters should exclusively done
+    by changing inputs, then calculating outputs before use.
     """
 
-    def __init__(self, settings_file_name='default', cell_geometry=None):
-        """
-        Loads inputs to generate Geomega geometry, then calculates
-        parameters from these and cell_geometry.
-
-        Has option for finding limited set of parameters from Cosima .setup
-        files.
-
-        Inputs:
-            settings_file_name - full file name for inputs .yaml file, or
-                Cosima .setup file.  If .setup, then only generates a
-                limited set of cells parameters.  'default' is standard
-                file in Gampy/settings
-            cell_geomtry - "rectangular" or "hexagonal".  If not supplied,
-                then taken from settings file.
-        """
-
+    def __init__(self, inputs_source='gomega_defaults', cell_geometry=None,
+                 cell_bounds=None):
+        """ """
         import sys
 
-        #   This flag used to turn off calculations when used after
-        #   Cosima has run.   Perhaps better done with a decorator?
-        self.live = True
-
-        #   Load inputs, calculate parameters.
-        if ((settings_file_name == 'default')
-            or (settings_file_name.split('.')[-1] == 'yaml')):
-            self.inputs = get_params_inputs(settings_file_name, cell_geometry)
+        #   Load Geomega .yaml inputs, calculates parameters.
+        if ((inputs_source == 'gomega_defaults')
+            or (inputs_source.split('.')[-1] == 'yaml')):
+            self.geometry = 'parameterized_geomega'
+            self.inputs = get_params_inputs(inputs_source, cell_geometry)
             self.calculate()
 
-        #   Loads minimal parameters from .setup file, for backward
-        #   compatabile data file opeining.  Kill one day.
-        elif settings_file_name.split('.')[-1] == 'setup':
-            self.cells = get_cell_params_from_setup(settings_file_name)
-            self.live = False
+        #   Calculates static configuration from .setup file
+        elif inputs_source.split('.')[-1] == 'setup':
+            self.geometry = 'static_geomega'
+            self.cells = get_params_from_setup(inputs_source)
+
+        #   Generates simple cell around track, for big vat geometry
+        elif inputs_source =='simple_cell':
+            self.geometry = 'simple_cell'
+            self.cells = get_simple_cell_params(cell_bounds)
 
         else:
-            sys.exit('Error: unrecognized .setup file: ' + settings_file_name)
-
+            sys.exit('Error: unrecognized .setup file: ' + inputs_source)
 
     def calculate(self):
         """
         Calculates parameters based on input constants.
         """
 
-        import sys
-
-        #   This probbly not very robust method prevents changing
-        #   geometry when working with simulated data
-        if not self.live:
-            sys.exit('Error in sims_tools.GeometryParams: changing'
-                     + ' geomtry not allowed after simulation performed.')
+        #   Return if not parameterized Geomega.  (Could instead check
+        #   for .input existing.)
+        if self.geometry != 'parameterized_geomega':
+            print('Warning: no calculatd parameters for ' + self.geometry)
+            return
 
         #   Assign all inputs to attributes of params
         for key in self.inputs.keys():
@@ -92,6 +88,12 @@ class Params():
 
     def apply_study_case(self, study, case):
         """ Apply case of study to inputs, and calculate params"""
+
+        #   Return if not parameterized Geomega.  (Could instead check
+        #   for .input existing.)
+        if self.geometry != 'parameterized_geomega':
+            print('Warning: no study case applied')
+            return
 
         if not hasattr(self, 'meta'):
             self.meta = {}
@@ -109,6 +111,157 @@ class Params():
         #   Recalculate derived values
         self.calculate()
 
+def get_params_inputs(inputs_source='gomega_defaults', cell_geometry=None):
+    """Returns inputs for params.  Cell geometry comes from seetings if
+    not supplied."""
+
+    import os
+    import yaml
+
+    #   Set file to gomega_defaults if not supplied
+    if inputs_source == 'gomega_defaults':
+        inputs_source = os.path.join(
+            os.path.dirname(os.path.split(__file__)[0]),
+            'inputs',
+            'default_sims_inputs.yaml'
+            )
+
+    #   Load inputs
+    with open(inputs_source, 'r') as file:
+        inputs = yaml.safe_load(file)
+
+    #   Take cell_geometry from inputs if not supplied, and remove
+    #   from inputs in any case
+    if not cell_geometry:
+        cell_geometry = inputs['cell_geometry']
+    inputs.pop('cell_geometry')
+
+    #   Assign appropriate cell geometry inputs
+    if cell_geometry == 'hexagonal':
+        for key in inputs['cell_geometries']['hexagonal']:
+            inputs['cells'][key] \
+                = inputs['cell_geometries']['hexagonal'][key]
+    if cell_geometry == 'rectangular':
+        for key in inputs['cell_geometries']['rectangular']:
+            inputs['cells'][key] \
+                = inputs['cell_geometries']['rectangular'][key]
+    inputs['cells']['geometry'] = cell_geometry
+
+    #   Remove cell_geometries altogether
+    inputs.pop('cell_geometries')
+
+    return inputs
+
+def get_params_from_setup(setup_file_name):
+    """ Hack routine to recover minimal cell geometry information
+    from .setup file.  Used to recover data before Aug/Sept 2024 overhaul
+    of parameters routines.
+    TODO: Should be deleted when no longer needed
+    """
+
+    import sys
+    import numpy as np
+    import math
+
+    try:
+        with open(setup_file_name, 'r') as f:
+            lines = [line for line in f]
+    except FileNotFoundError:
+        sys.exit('Bad .setup file: ' + setup_file_name)
+
+    #   Geometry lines
+    tpc_line = [line for line in lines if
+            len(line)>2 and line.split()[0]=='BaseTPCCell.Shape'][0]
+    # vessel_line = [line for line in lines if
+    #         len(line)>2 and line.split()[0]=='Vessel.Shape'][0]
+    # base_acd_line = [line for line in lines if
+    #         len(line)>2 and line.split()[0]=='BaseACDLayer.Shape'][0]
+    # bottom_acd_line = [line for line in lines if
+    #         len(line)>2 and line.split()[0]=='Bottom_ACD.Position'][0]
+    # top_acd_line = [line for line in lines if
+    #         len(line)>2 and line.split()[0]=='Top_ACD.Position'][0]
+    cell_position_lines = [line for line in lines if (
+        len(line)>2
+        and (line.split()[0][:5] == 'Cell_')
+        and (line.split()[0][8:] == '.Position')
+        )]
+    cell_rotation_lines = [line for line in lines if (
+        len(line)>2
+        and (line.split()[0][:5] == 'Cell_')
+        and (line.split()[0][8:] == '.Rotation')
+        )]
+
+    # #   TPC outer dimension from x distance between cells
+    # xd = np.diff(np.array([float(line.split()[1]) for line in cell_position_lines]))
+    # cell_width_outer = np.abs(xd[xd>1e-4]).min() * 2
+
+    # top_acd_z = float(top_acd_line.split()[3])
+    # top_acd_dz = float(base_acd_line.split()[4])
+    # cell_z = float(cell_position_lines[0].split()[3])
+    # vessel_z = float(vessel_line.split()[4])
+
+    cells = {}
+
+    #   Cell geometry should be based on number of corners of polygon,
+    #   which is in tpc_line.  But just assume is hexagonal
+    if int(tpc_line.split()[4])==6:
+        cells['geometry'] = 'hexagonal'
+    elif int(tpc_line.split()[4])==4:
+        cells['geometry'] = 'rectangular'
+    else:
+        sys.exit('Error - unrecognized cell geometry')
+
+    #   TPC height and inner dimension are in TPC cell line
+    cells['height'] = float(tpc_line.split()[6]) * 2.0 / 100.0
+    cells['flat_to_flat'] = float(tpc_line.split()[8]) * 2.0 / 100.0
+    cells['corner_to_corner'] = cells['flat_to_flat'] * 2 / math.sqrt(3)
+    cells['area'] = 2 * math.sqrt(3) * (cells['flat_to_flat'] /2.0)**2
+    cells['centers'] = np.zeros((3, len(cell_position_lines)), dtype=float)
+    for n, line in enumerate(cell_position_lines):
+        cells['centers'][:, n] \
+            = np.array(cell_position_lines[n].split()[-3:], dtype=float) \
+                / 100.0
+    cells['rotation'] \
+        = np.array(cell_rotation_lines[0].split()[-1], dtype=float)
+
+    #   z location of surface of anode for each cell
+    cells['z_anode'] = (
+        cells['centers'][2, :]
+        + (cells['height'] / 2.0) * (cells['centers'][2, :]>0)
+        - (cells['height'] / 2.0) * ~(cells['centers'][2, :]>0)
+        ) / 100.0
+
+    return cells
+
+def get_simple_cell_params(cell_bounds=None):
+    """ If cell_bounds is None, is 1 m^3 cube with +z wall in x-y plane."""
+
+    import numpy as np
+
+    #   For cell_bounds is None, 1 m^3 cube with +z wall in x-y plane
+    if cell_bounds is None:
+        cell_bounds = np.array(
+            [[-0.5, -0.5, -1.0], [0.5, 0.5, 0.0]],
+            dtype=float
+            ).T
+
+    #   Tack on 10% buffer
+    buffer = 0.1 * np.diff(cell_bounds).max()
+    cell_bounds[:, 0] -= buffer
+    cell_bounds[:, 1] += buffer
+
+    #   Minimal cell description
+    cells = {}
+    cells['geometry'] = 'rectangular'
+    cells['num_cells'] = 1
+    cells['width_x'] = 2 * np.max(np.abs(cell_bounds[0, :]))
+    cells['width_y'] = 2 * np.max(np.abs(cell_bounds[1, :]))
+    cells['height'] = np.diff(cell_bounds[2, :])[0]
+    cells['center'] = np.mean(cell_bounds, axis=1)
+    cells['z_anode'] = cells['center'][2] + cells['height'] / 2.0
+
+    return cells
+
 def calculate_geomega_geometry_v1(params):
     """
     Generates geomaga geometry, with following "topology":
@@ -120,7 +273,7 @@ def calculate_geomega_geometry_v1(params):
         + No separate micrometeor shied
 
     From geomega_inputs, calculate all params needed to describe the
-    detector, along with geomega file image, and add these to params.
+    detector, along with Geomega file image, and add these to params.
 
     Note that this detector description does not include the readout.
 
@@ -267,7 +420,7 @@ def calculate_geomega_geometry_v1(params):
         - cell_z_anode * ~front_layer_mask
         )
 
-    #%% Now make geomega file image
+    #%% Now make Geomega file image
 
     #   Helper routine to create text lines for cell copies
     def get_tpc_cell_line(cell_number, cell_center, cell_geometry,
@@ -294,7 +447,7 @@ def calculate_geomega_geometry_v1(params):
 
         return line
 
-    #%%  Generate geomega file lines
+    #%%  Generate Geomega file lines
 
     lines = ['Include $(MEGAlib)/megalibgeo/materials/Materials.geo\n']
 
@@ -869,125 +1022,3 @@ def global_to_cell_coordinates(r_in, cell, params, reverse=False):
     ], axis=1)
 
     return r_transformed
-
-def get_params_inputs(settings_file_name='default', cell_geometry=None):
-    """Returns inputs for params.  Cell geometry comes from seetings if
-    not supplied."""
-
-    import os
-    import yaml
-
-    #   Set file to default if not supplied
-    if settings_file_name == 'default':
-        settings_file_name = os.path.join(
-            os.path.dirname(os.path.split(__file__)[0]),
-            'settings',
-            'default_sims_settings.yaml'
-            )
-
-    #   Load inputs
-    with open(settings_file_name, 'r') as file:
-        inputs = yaml.safe_load(file)
-
-    #   Take cell_geometry from inputs if not supplied, and remove
-    #   from inputs in any case
-    if not cell_geometry:
-        cell_geometry = inputs['cell_geometry']
-    inputs.pop('cell_geometry')
-
-    #   Assign appropriate cell geometry inputs
-    if cell_geometry == 'hexagonal':
-        for key in inputs['cell_geometries']['hexagonal']:
-            inputs['cells'][key] \
-                = inputs['cell_geometries']['hexagonal'][key]
-    if cell_geometry == 'rectangular':
-        for key in inputs['cell_geometries']['rectangular']:
-            inputs['cells'][key] \
-                = inputs['cell_geometries']['rectangular'][key]
-    inputs['cells']['geometry'] = cell_geometry
-
-    #   Remove cell_geometries altogether
-    inputs.pop('cell_geometries')
-
-    return inputs
-
-def get_cell_params_from_setup(setup_file_name):
-    """ Hack routine to recover minimal cell geometry information
-    from .setup file.  Used to recover data before Aug/Sept 2024 overhaul
-    of parameters routines.
-    TODO: Should be deleted when no longer needed
-    """
-
-    import sys
-    import numpy as np
-    import math
-
-    try:
-        with open(setup_file_name, 'r') as f:
-            lines = [line for line in f]
-    except FileNotFoundError:
-        sys.exit('Bad .setup file: ' + setup_file_name)
-
-    #   Geometry lines
-    tpc_line = [line for line in lines if
-            len(line)>2 and line.split()[0]=='BaseTPCCell.Shape'][0]
-    # vessel_line = [line for line in lines if
-    #         len(line)>2 and line.split()[0]=='Vessel.Shape'][0]
-    # base_acd_line = [line for line in lines if
-    #         len(line)>2 and line.split()[0]=='BaseACDLayer.Shape'][0]
-    # bottom_acd_line = [line for line in lines if
-    #         len(line)>2 and line.split()[0]=='Bottom_ACD.Position'][0]
-    # top_acd_line = [line for line in lines if
-    #         len(line)>2 and line.split()[0]=='Top_ACD.Position'][0]
-    cell_position_lines = [line for line in lines if (
-        len(line)>2
-        and (line.split()[0][:5] == 'Cell_')
-        and (line.split()[0][8:] == '.Position')
-        )]
-    cell_rotation_lines = [line for line in lines if (
-        len(line)>2
-        and (line.split()[0][:5] == 'Cell_')
-        and (line.split()[0][8:] == '.Rotation')
-        )]
-
-    # #   TPC outer dimension from x distance between cells
-    # xd = np.diff(np.array([float(line.split()[1]) for line in cell_position_lines]))
-    # cell_width_outer = np.abs(xd[xd>1e-4]).min() * 2
-
-    # top_acd_z = float(top_acd_line.split()[3])
-    # top_acd_dz = float(base_acd_line.split()[4])
-    # cell_z = float(cell_position_lines[0].split()[3])
-    # vessel_z = float(vessel_line.split()[4])
-
-    cells = {}
-
-    #   Cell geometry should be based on number of corners of polygon,
-    #   which is in tpc_line.  But just assume is hexagonal
-    if int(tpc_line.split()[4])==6:
-        cells['geometry'] = 'hexagonal'
-    elif int(tpc_line.split()[4])==4:
-        cells['geometry'] = 'rectangular'
-    else:
-        sys.exit('Error - unrecognized cell geometry')
-
-    #   TPC height and inner dimension are in TPC cell line
-    cells['height'] = float(tpc_line.split()[6]) * 2.0 / 100.0
-    cells['flat_to_flat'] = float(tpc_line.split()[8]) * 2.0 / 100.0
-    cells['corner_to_corner'] = cells['flat_to_flat'] * 2 / math.sqrt(3)
-    cells['area'] = 2 * math.sqrt(3) * (cells['flat_to_flat'] /2.0)**2
-    cells['centers'] = np.zeros((3, len(cell_position_lines)), dtype=float)
-    for n, line in enumerate(cell_position_lines):
-        cells['centers'][:, n] \
-            = np.array(cell_position_lines[n].split()[-3:], dtype=float) \
-                / 100.0
-    cells['rotation'] \
-        = np.array(cell_rotation_lines[0].split()[-1], dtype=float)
-
-    #   z location of surface of anode for each cell
-    cells['z_anode'] = (
-        cells['centers'][2, :]
-        + (cells['height'] / 2.0) * (cells['centers'][2, :]>0)
-        - (cells['height'] / 2.0) * ~(cells['centers'][2, :]>0)
-        ) / 100.0
-
-    return cells

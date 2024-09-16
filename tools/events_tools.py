@@ -17,7 +17,7 @@ class Events:
     GAMPixG charge readout.
 
     TODO: When relevant, add selection of charge readout.  Follow
-        approach in electron_track_tools, including defined
+        approach in tracks_tools, including defined
         method for resetting params with different
 
     TODO: Review, extend various performance routines: pointing,
@@ -28,19 +28,18 @@ class Events:
     """
     def __init__(self,
                  sim_file_name,
-                 geometry_settings_file_name,
+                 sims_inputs_file_name,
                  num_events_to_read=1e10,
+                 readout_inputs_file_name='default',
                  read_sim_file=False,
                  write_events_files=True,
-                 cell_settings_file_name='default',
                  ):
         """
         Reads events from .hdf5 file if found, otherwise from
         .sim file and writes hdf5 files unless directed not to.
-        geometry_settings_file_name_name is the .yaml file with geometry
-        settings, or if missing, the .source file.
-        Generates tpc_cell_parameters, usgin settings file or defaults, and
-        makes these a method of the object.
+
+        See sims_tools and readout_tools for options for
+        sims_inputs_file_name and readout_inputs_file_name
         """
 
         import os
@@ -53,7 +52,7 @@ class Events:
 
         #   Get geometry_params
         self.sims_params \
-            = sims_tools.Params(geometry_settings_file_name)
+            = sims_tools.Params(sims_inputs_file_name)
 
         #   This flag prevents updating sims_params
         self.sims_params.live = False
@@ -97,8 +96,8 @@ class Events:
 
             #   Add file names, number of events, geo_parms to meta data
             self.meta['sim_file_name'] = sim_file_name
-            self.meta['geometry_settings_file_name'] \
-                = geometry_settings_file_name
+            self.meta['sims_inputs_file_name'] \
+                = sims_inputs_file_name
             self.meta['num_events'] = ak.num(self.truth['num_hits'], axis=0)
 
             #   Write .hdf5 files
@@ -113,7 +112,7 @@ class Events:
 
         #   Generate default response params, and assign to events
         self.read_params = readout_tools.Params(
-            settings_file_name=cell_settings_file_name,
+            inputs_file_name=readout_inputs_file_name,
             charge_readout_name='GAMPixG',
             cells=self.sims_params.cells,
             )

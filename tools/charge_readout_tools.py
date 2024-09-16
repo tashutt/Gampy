@@ -90,8 +90,8 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
 
         #   Focus electrons uniformly onto pixels
         #   TODO: review focus_factor.  Need to add defocussing
-        # r_chip[0, :] = r_chip[0, :] * pixel_sensors['focus_factor']
-        # r_chip[1, :] = r_chip[1, :] * pixel_sensors['focus_factor']
+        r_chip[0, :] = r_chip[0, :] * pixel_sensors['focus_factor'][0]
+        r_chip[1, :] = r_chip[1, :] * pixel_sensors['focus_factor'][1]
 
         #   Readout out pixels for these r
         chip_samples = readout_pixels(
@@ -363,8 +363,7 @@ def readout_coarse_grids(r, num_e, coarse_grid_sensors, stats_output=False):
     xy_centers = []
     xy_indices = []
     for n in range(2):
-        idx \
-            = find_span(r[n, :], coarse_grid_sensors['centers'][n])
+        idx = find_span(r[n, :], coarse_grid_sensors['centers'][n])
         xy_centers.append(coarse_grid_sensors['centers'][n][idx])
         xy_indices.append(idx)
 

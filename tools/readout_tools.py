@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Helper routines for TPC cells, including parameters definition.
+Routines that define readout, featuring the parameters class Params,
+and related functions.
 
 TODO: Move charge_drift_tools into here.  Deal with materials.
 TODO: Add versioning?
@@ -9,12 +10,8 @@ TODO: Finishing changing cells indexing: x,y -> 0, 1
 TODO: Overhaul hexagonal indexing.  Was previous worrying over
     linear_index, and fussing over row-column indexing needed?
 TODO: Move display code out?  Use pythonic patch, etc to simplify.
-TODO: move out remaining performance calcs - capacitance
 TODO[ts]: see
     https://confluence.slac.stanford.edu/display/GTPC/Detector+Response
-
-Overhaul: implement .yaml inputs, split geometry and rename this tpc_cells,
-    clean up, including revised parameters names.  8/24
 
 Signficant rewrite of original Matlab routines, iniial port 8/10/2020
 Major repackaging 3/21
@@ -24,86 +21,44 @@ Major repackaging 3/21
 
 class Params:
     """
-    Create parameters object for TPC cells according to settings, and
-        cell geometry, which is supplied or generated separately.
+    Creates Params object, a parametric description of the readout
 
-        Currently all cells are identical, if more than one.
+    inputs_file_name:
+        = 'default'     - use default .yaml inputs file
+        =  file_name    - full name of .yaml inputs file
 
-    Inputs:
-        settings_file_name - full file name for inputs .yaml file.
-            'default' is standard file in Gampy/settings
-        charge_readout_name - name of charge readout architecture, which
-            of supplied overides values in settings file
-        cells - supplied from detector geometry of simulation.  Not used
-            if simulation is simple uniform medium.
-        cell_bounds - if cells not provided, these define simple rectangular
-            cell geometry.  Array of lower and upper cell bounds in
-            all three dimensions, shape [3, 2].  Default is 1 m^3 cube
-            at origin.
+    charge_readout_name - specifies readout architecture, if supplied
+        overides values in inputs file
+
+    cells - supplied from sims_tools.Params, or if not supplied, then
+        sims_tools.simple_cell() is used.
+        Currently for multiplie cells, all must be identical
+
+    The Params object has .calculate() method to produce outputs from inputs.
+    Changes to parameters should exclusively done by changing inputs,
+    then calculating outputs before use.
     """
 
     def __init__(self,
-                 settings_file_name='default',
+                 inputs_file_name='default',
                  charge_readout_name=None,
                  cells=None,
-                 cell_bounds=None,
                  ):
-        """
-        Loads tpc cell parameter inputs, with input choices governed by
-        charge_readout_name.  Calculates parameters from inputs and
-        cell geometry.
-        """
-
-        import numpy as np
+        """ """
+        import sims_tools
 
         #   Load inputs
         self.inputs, self.charge_readout_name = get_params_inputs(
-            settings_file_name,
+            inputs_file_name,
             charge_readout_name,
             )
 
-        #%%  If cells not provided, create simple cell
+        #   If cells not provided, get from sims default, otherwise use
+        #   supplied input
         if not cells:
-
-            #   If cell_bounds not supplied, then make 1 m^3 box
-            if cell_bounds is None:
-                cell_bounds = np.array(
-                    [[-1, -1, -1], [1, 1, 1]],
-                    dtype=float
-                    ).T / 2.0
-
-            #   Add fixed buffer, and pitch of largest electrodes
-            buffer = 0.01
-            if 'coarse_tiles' in self.inputs:
-                buffer += self.inputs['coarse_tiles']['pitch']
-            elif 'coarse_grids' in self.inputs:
-                buffer += self.inputs['coarse_grids']['pitch']
-            else:
-                if 'pixels' in self.inputs:
-                    buffer += self.inputs['pixels']['pitch']
-                elif 'anode_grid' in self.inputs:
-                    buffer += self.inputs['anode_grid']['pitch']
-
-            #   Add buffer
-            cell_bounds[:, 0] -= buffer
-            cell_bounds[:, 1] += buffer
-
-            #   initialize cells
-            cells = {}
-
-            #   Location is center of cells bounds in x-y, upper edge in z
-            cells['positions'] = np.zeros((3,1), dtype=float)
-            cells['thetas'] = np.zeros(1, dtype=float)
-
-            #   Minimal cell description
-            cells['geometry'] = 'rectangular'
-            cells['num_cells'] = 1
-            cells['width_x'] = 2 * np.max(np.abs(cell_bounds[0, :]))
-            cells['width_y'] = 2 * np.max(np.abs(cell_bounds[1, :]))
-            cells['height'] = np.diff(cell_bounds[2, :])[0]
-
-        #   Save cells and charge readout to params
-        self.cells = cells
+            self.cells = sims_tools.get_simple_cell_params()
+        else:
+            self.cells = cells
 
         #   Calculate
         self.calculate()
@@ -112,14 +67,10 @@ class Params:
         """
         Calculates parameters based on input constants
         """
-
         import math
         import numpy as np
 
         import charge_drift_tools
-
-        #   Dielectric constants
-        eps = define_eps()
 
         #%%   Assign all inputs to attributes of params
         for key in self.inputs.keys():
@@ -159,7 +110,7 @@ class Params:
                 span = [self.cells['flat_to_flat'],
                         self.cells['corner_to_corner']]
 
-            #   Save pitch as coarse_pitch
+            #   Assume coarse grids are always the biggest coarse_pitch
             self.coarse_pitch = pitch
 
             #   Find edges and centers. Centers are wire locations.
@@ -256,30 +207,13 @@ class Params:
                 coarse_grids['sampling_pitch'] \
                     / self.charge_drift['velocity']
 
-            # #   TODO: Move this elsehwere
-            # #   Capacitances is approximate per length for
-            # #   plane of grid wires between grounded plates,
-            # #   following Erskine.  See
-            # #   Van Esch criticism that this
-            # #   isn't correct for noise estimates.
-            # coarse_grids['capacitance'] = (
-            #     2 * math.pi * eps['lar'] * eps['not']
-            #     / (math.pi
-            #        * self.coarse_grids['gap']
-            #     / self.coarse_grids['pitch']
-            #     - math.log(2 * math.pi
-            #        * self.coarse_grids['wire_radius']
-            #     / self.coarse_grids['pitch']))
-            #     * self.cells['width_x']
-            #     )
-
         #%%   Anode grid - 1D wires oriented along y
         if hasattr(self, 'anode_grid'):
 
             #   Convenient variable
             pitch = self.anode_grid['pitch']
 
-            #   Save pitch as coarse_pitch
+            #   Assume these grids are the biggest coarse_pitch
             self.coarse_pitch = pitch
 
             #   Wires orienteted along y, so span based on cell x width
@@ -298,7 +232,7 @@ class Params:
                 self.anode_grid['sampling_pitch'] \
                     / self.charge_drift['velocity']
 
-        #%%   Chip array for GAMPixG defined based on coarse grids.
+        #%%   If GAMPixG, handle chip array, based on coarse grids.
         #   Note - there are no input params for chip_array.
         if self.charge_readout_name=='GAMPixG':
 
@@ -381,93 +315,6 @@ class Params:
                 #   y is simple array
                 self.chip_array['centers'][1] = ys
 
-            # #   Numbers
-            # num_tiles = 0
-            # num_rows =len(self.chip_array['centers']['x'])
-            # num_columns = []
-            # for xs in self.chip_array['centers']['x']:
-            #     num_columns.append(len(xs))
-            #     num_tiles += len(xs)
-            # self.pixels['num_tiles'] = num_tiles
-            # self.pixels['num_tile_columns'] \
-            #     = np.array(num_columns, dtype=int)
-            # self.pixels['num_tile_rows'] = num_rows
-
-            # #   Linear index has strucure:
-            # #   ...[row][column]
-            # linear_index = []
-            # i_o = 0
-            # n = 0
-            # for xs in self.chip_array['centers']['x']:
-            #     # linear_index.append((np.arange(0, len(xs)) + i_o).tolist())
-            #     linear_index.append(np.arange(0, len(xs)) + i_o)
-            #     i_o = linear_index[n][-1] + 1
-            #     n += 1
-            # self.chip_array['linear_index'] = linear_index
-
-            # #   Row  and column indices have structures:
-            # #   ...['row_index'][tile_number]
-            # #   ...['column_index'][tile_number]
-            # row_index = []
-            # column_index = []
-            # n = 0
-            # for row in range(num_rows):
-            #     for column in range(num_columns[row]):
-            #         row_index.append(row)
-            #         column_index.append(column)
-            # self.chip_array['row_index'] \
-            #     = np.array(row_index, dtype=int)
-            # self.chip_array['column_index'] \
-            #     = np.array(column_index, dtype=int)
-
-            # #   Tile edges in x and y
-            # x_edges = []
-            # for xs in self.chip_array['centers']['x']:
-            #     x_edges.append(np.append(xs - w / 2, xs[-1] + w / 2))
-            # y_edges = np.append(ys - w / 2, ys[-1] + w / 2)
-            # self.chip_array['edges'] = {}
-            # self.chip_array['edges']['x'] = x_edges
-            # self.chip_array['edges']['y'] = y_edges
-
-            # #   Sampling time and pitch - equal to lateral pitch
-            # self.chip_array['sampling_pitch'] = self.pixels['pitch']
-            # self.chip_array['sampling_time'] = \
-            #     self.chip_array['sampling_pitch'] \
-            #         / self.charge_drift['velocity']
-
-            # #   Tile outlines for plotting
-            # self.chip_array['plotting'] = {}
-            # self.chip_array['plotting']['outline'] = {}
-            # self.chip_array['plotting']['outline_rc'] = {}
-            # self.chip_array['plotting']['outline']['x'] = []
-            # self.chip_array['plotting']['outline']['y'] = []
-            # self.chip_array['plotting']['outline_rc']['x'] = []
-            # self.chip_array['plotting']['outline_rc']['y'] = []
-            # x = []
-            # y = []
-            # for row in range(num_rows):
-            #     x_outline = []
-            #     y_outline = []
-            #     for xs in self.chip_array['centers']['x'][row]:
-            #         xo = (
-            #             xs
-            #             + np.array([-1, 1, 1, -1, -1]) * w / 2
-            #             )
-            #         yo = (
-            #             self.chip_array['centers']['y'][row]
-            #             + np.array([-1, -1, 1, 1, -1]) * w / 2
-            #             )
-            #         x.append(xo)
-            #         y.append(yo)
-            #         x_outline.append(xo)
-            #         y_outline.append(yo)
-            #     self.chip_array['plotting']['outline_rc']['x'] \
-            #         .append(x_outline)
-            #     self.chip_array['plotting']['outline_rc']['y'] \
-            #         .append(y_outline)
-            # self.chip_array['plotting']['outline']['x'] = x
-            # self.chip_array['plotting']['outline']['y'] = y
-
         #%%   Coarse tiles
         if hasattr(self, 'coarse_tiles'):
 
@@ -515,6 +362,10 @@ class Params:
             #   both directions
             pitch = self.pixels['pitch']
 
+            #   If LArPix, this is coarse pitch
+            if self.charge_readout_name=='LArPix':
+                self.coarse_pitch = pitch
+
             #   Span depends on architecture
             if self.charge_readout_name=='GAMPixG':
                 span = [self.chip_array['pitch']] * 2
@@ -534,14 +385,16 @@ class Params:
                 self.pixels['centers'].append(
                     self.pixels['edges'][n][0:-1] + pitch / 2)
 
-            # #   Focus factor given that pixels may not fill span.
-            #   TODO: implement this fully, and separately in x, y for
-            #   LArPix?   Also, should also apply to coarse_tiles
-            # focus_factor = (
-            #     self.pixels['edges'][0][-1]
-            #     - self.pixels['edges'][0][0]
-            #     ) / span
-            # self.pixels['focus_factor'] = focus_factor
+            #   Focus factor given that pixels may not fill span.
+            #   TODO: implement this fully?  Also, should also
+            #   apply to coarse_tiles???
+            focus_factor = []
+            for n in range(2):
+                focus_factor.append(
+                    (self.pixels['edges'][0][-1] - self.pixels['edges'][0][0])
+                    / span[n]
+                    )
+            self.pixels['focus_factor'] = focus_factor
 
             #   Sampling time and pitch - equal to lateral pitch
             self.pixels['sampling_pitch'] = self.pixels['pitch']
@@ -550,8 +403,7 @@ class Params:
                     / self.charge_drift['velocity']
 
     def apply_study_case(self, study, case):
-        """ Apply case of study to inputs, and calculate params
-        """
+        """ Apply case of study to inputs, and calculate params """
 
         if not hasattr(self, 'meta'):
             self.meta = {}
@@ -570,26 +422,25 @@ class Params:
         self.calculate()
 
 def get_params_inputs(
-             settings_file_name='default',
+             inputs_file_name='default',
              charge_readout_name=None,
              ):
     """Load default or supplied params inputs, with charge_readout_name
-    used to choose amongst inputs
-    """
+    used to choose amongst inputs """
 
     import os
     import yaml
 
     #   Set file to default if not supplied
-    if settings_file_name == 'default':
-        settings_file_name = os.path.join(
+    if inputs_file_name == 'default':
+        inputs_file_name = os.path.join(
             os.path.dirname(os.path.split(__file__)[0]),
-            'settings',
-            'default_readout_settings.yaml'
+            'inputs',
+            'default_readout_inputs.yaml'
             )
 
     #   Load inputs
-    with open(settings_file_name, 'r') as file:
+    with open(inputs_file_name, 'r') as file:
         inputs = yaml.safe_load(file)
 
     #   Take charge readout from inputs if not supplied, and remove

@@ -1491,7 +1491,7 @@ class Sim_File:
         dig_down(self, startindex, 1)
 
 ######## Helper functions ##########
-def particle_name(iso,ia=2):
+def particle_name(iso, ia=2):
 
     particle_ids = {
         0: "?", 1: "photon", 2: "positron", 3: "electron", 4: "proton",
@@ -1546,6 +1546,7 @@ def particle_name(iso,ia=2):
     H = elements_dict[ele]
 
     return f"{H}{av}" if av > 0 else H
+
 ######## Helper functions ##########
 
 def read_events_from_sim_file(full_file_name,

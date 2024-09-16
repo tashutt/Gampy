@@ -38,7 +38,7 @@ def display_track(self,
     import numpy as np
     import matplotlib.pyplot as plt
 
-    import electron_track_tools
+    import tracks_tools
 
     #   Prep variable to plot initial vector
     def prep_s(s, origin, scale):
@@ -54,7 +54,7 @@ def display_track(self,
         if (track_extent / resolution) > max_num_bins:
             resolution = track_extent  / max_num_bins
 
-        plot_lims = electron_track_tools.find_bounding_box(
+        plot_lims = tracks_tools.find_bounding_box(
             r,
             buffer = 0.01 * track_extent
             )
@@ -132,7 +132,7 @@ def display_track(self,
         num_e = self.drifted_track['num_e']
 
     #   Extent of track and pixels
-    track_extent = np.diff(electron_track_tools.find_bounding_cube(
+    track_extent = np.diff(tracks_tools.find_bounding_cube(
         r,
         buffer=0
         )).max()
@@ -147,14 +147,14 @@ def display_track(self,
         if pixels: # and not raw_track:
             pitch = self.read_params.pixels['pitch']
             if 'r_raw' in self.pixel_samples:
-                plot_lims = electron_track_tools.find_bounding_cube(
+                plot_lims = tracks_tools.find_bounding_cube(
                     self.pixel_samples['r_raw'] * scale, buffer = pitch / 2)
             else:
-                plot_lims = electron_track_tools.find_bounding_cube(
+                plot_lims = tracks_tools.find_bounding_cube(
                     self.pixel_samples['r_triggered'] * scale,
                     buffer = pitch / 2)
         else:
-            plot_lims = electron_track_tools.find_bounding_cube(
+            plot_lims = tracks_tools.find_bounding_cube(
                 r_p, buffer = track_extent * 0.05)
 
     #   Origin
@@ -178,6 +178,8 @@ def display_track(self,
         material_tag = ' in ' + self.meta['material']
     else:
         material_tag = ''
+    # if self.meta['initial_particle']==1:
+    #     particle_tag = 'e'
     track_tag = (
         f'{self.truth["track_energy"]:4.0f} keV'
         + material_tag
