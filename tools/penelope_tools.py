@@ -5,14 +5,14 @@ Created on Tue Mar 21 16:13:42 2023
 
 Collection of tools for using PENELOPE to simulate electron tracks
 
-March 23, split this off from electron_track_tools
+March 23, split this off from tracks_tools
 
 @author: tshutt
 """
 def simple_penelope_track_maker(p,
                         steering,
                         delete_penelope_data=True,
-                        random_initial_direction=True,
+                        initial_direction=[0, 0, -1],
                         reset_origin=True,
                         wipe_folders=False,
                         fresh_seed=True,
@@ -29,7 +29,9 @@ def simple_penelope_track_maker(p,
     a numpy (.npz) file nd pickle files, one pair per track.  Tracks from
     each energy goes into a separate folder.
 
-    random_initial_direction and reset_origin are settings for
+    initial_direction is a vector (array or list), or 'random'.
+        Note - this assume tracks simulated in direction (0,0,1)
+    reset_origin - if true, track mean is at origin (0,0,0).
     parse_penelope - see comments there
 
     Steering has energies in keV and number of tracks at each energy
@@ -39,8 +41,8 @@ def simple_penelope_track_maker(p,
     NOTE: What deposited energy is used to generate electron should be
     checked.
 
-    Improvement: more rational handling of material and params - material
-        should be in params
+    Improvement: more rational handling of material and read_params - material
+        should be in read_params
 
     11/7/21 TS port from matlab
     """
@@ -49,7 +51,7 @@ def simple_penelope_track_maker(p,
     import glob
     from datetime import datetime
 
-    import electron_track_tools
+    import tracks_tools
 
     #   Simulation input
 
@@ -58,13 +60,13 @@ def simple_penelope_track_maker(p,
     #   parsed python files and removed until this batch is completed.
     max_num_tracks_batch = 50
 
-    #   Material and params to give recombination.  This should beis really not
-    #   handled well - material shoul be in params
+    #   Material and read_params to give recombination.  This is really not
+    #   handled well - material shoul be in read_params
     material = 'LAr'
     if 'material' in steering:
         material = steering['material']
-    import params_tools
-    params = params_tools.ResponseParams()
+    import readout_tools
+    read_params = readout_tools.Params()
 
     #   Particles. 1=electron, 2=photon, 3=positron
     #   Set to electrons if missing
@@ -79,6 +81,7 @@ def simple_penelope_track_maker(p,
         ptag = 'photons'
     if particles==3:
         ptag = 'positrons'
+    particle_ids = {'electrons': 1, 'photons': 2, 'positrons': 3}
 
     #   Prep and check folders
     if not os.path.isdir(p['output']):
@@ -113,9 +116,9 @@ def simple_penelope_track_maker(p,
             os.mkdir(p2)
 
         #   Blab
-        print('Working on ' + str(steering['num_tracks'][ne])
-              + ' * ' + str(energy) + ' keV ' + ptag
-              + ' in ' + material)
+        print(f'E = {energy} keV ' + ptag + ', '
+              + str(steering['num_tracks'][ne]) + ' tracks '
+              + 'in ' + material)
 
         #   These control looping over calls to penelope
         num_full_bunches = np.fix(
@@ -193,15 +196,17 @@ def simple_penelope_track_maker(p,
                 track = parse_penelope_file(
                     p2,
                     full_file_name,
-                    params,
-                    random_initial_direction=random_initial_direction,
+                    read_params,
+                    initial_direction=initial_direction,
                     reset_origin=reset_origin,
                     compression_bin_size=compression_bin_size
                     )
 
-                #   Save material and initial particle to meta data
+                #   Save meta data
                 track['meta']['material'] = material
                 track['meta']['initial_particle'] = particles
+                track['meta']['energy'] = energy
+                track['meta']['particle_ids'] = particle_ids
 
                 #  Save penelope_tracks
                 file_name = full_file_name.split(os.path.sep)[-1]
@@ -210,7 +215,7 @@ def simple_penelope_track_maker(p,
                     + '_'
                     + datetime.now().strftime('D%Y%m%d_T%H%M%f')
                     )
-                electron_track_tools.save_track(
+                tracks_tools.save_track(
                     os.path.join(p2, out_file_name),
                     track
                     )
@@ -225,8 +230,8 @@ def simple_penelope_track_maker(p,
 def parse_penelope_file(
         p_data,
         full_file_name,
-        params,
-        random_initial_direction=True,
+        read_params,
+        initial_direction=[0, 0, -1],
         reset_origin=True,
         compression_bin_size=200e-6
         ):
@@ -236,8 +241,8 @@ def parse_penelope_file(
         Works on set of files of same energy in single folder.  Each file,
         input and output, is a single track.
 
-    random_initial_direction - if true, rotates about the track about the
-    track head at (0,0,0) into a random direction in 4pi
+    initial_direction is a vector (array or list), or 'random'.
+        Note - this assume tracks simulated in direction (0,0,1)
 
     reset_origin - if true, translates track so that the mean is at
     origin (0,0,0).  This translation is applied after the track is
@@ -261,8 +266,9 @@ def parse_penelope_file(
     import numpy as np
     from math import pi
     import os
+    import sys
 
-    import electron_track_tools
+    import tracks_tools
     import math_tools
 
     #   Get penelope settings from penelope_in file
@@ -270,10 +276,10 @@ def parse_penelope_file(
 
     #   define w
     #   Fudge was some early rough kludge; should be revisited. Also,
-    #   badly implemented - fudge should be in params also.
+    #   badly implemented - fudge should be in read_params also.
     #   TODO[ts]: Clean up
     w_fudge = 0.8
-    w = params.material['w'] * w_fudge
+    w = read_params.material['w'] * w_fudge
 
     # print('\r  file  ' + str(nf) + ' ', end='')
 
@@ -322,7 +328,7 @@ def parse_penelope_file(
     # penelope_data['particel_age'] = data_block[:, 13]
 
     # penelope_data['charges'] = np.fix(penelope_data['delta_energy'] / w)
-        # * (1 - params.materials['recombination'])
+        # * (1 - read_params.materials['recombination'])
 
     #   Now Derive things
     penelope_data['id'] = max(penelope_data['particle_id'])
@@ -342,7 +348,7 @@ def parse_penelope_file(
         & (penelope_data['delta_energy'] > w)
     num_e = np.round(np.fix(
         penelope_data['delta_energy']
-        / w * (1 - params.material['recombination'])
+        / w * (1 - read_params.material['recombination'])
         ) * active_interactions).astype(int)
     deposits_mask = num_e>0
     num_e = num_e[deposits_mask]
@@ -353,10 +359,12 @@ def parse_penelope_file(
 
     #   Origin and initial diretion are from Penelope input
     origin = penelope_input['r_o'] / 100
-    initial_direction = penelope_input['s_o']
+    penelope_direction = penelope_input['s_o']
 
-    #   Rotate track to random direction in 4pi
-    if random_initial_direction:
+    #   Track initial directions
+    if isinstance(initial_direction, str):
+        if initial_direction!='random':
+            sys.exit('Error in parse_penelope_file: bad initial_direction')
 
         #   generate unit vector with random direction in 4pi
         rng = np.random.default_rng()
@@ -364,9 +372,13 @@ def parse_penelope_file(
         phi = 2 * pi * rng.random(1)
         s = math_tools.sph2cart(theta, phi)
 
-        #   Rotate track, initial vector
-        r = math_tools.rotate_ray(r, s)
-        initial_direction = math_tools.rotate_ray(initial_direction, s)
+    #   Rotate to specified directions
+    else:
+        s = np.array(initial_direction)
+
+    #   Rotate track, initial vector
+    r = math_tools.rotate_ray(r, s)
+    initial_direction = math_tools.rotate_ray(penelope_direction, s)
 
     #   Center track on mean
     if reset_origin:
@@ -376,7 +388,7 @@ def parse_penelope_file(
 
     #   Compress
     if not compression_bin_size==None and compression_bin_size>0:
-        r, num_e = electron_track_tools.compress_track(
+        r, num_e = tracks_tools.compress_track(
             r,
             num_e,
             compression_bin_size
@@ -490,20 +502,12 @@ def pentracks_in_file_image(energy,
     energy_settings['wcr'] = []
     energy_settings['timelimit'] = []
 
-    energy_settings['max_energy'].append(201)
+    energy_settings['max_energy'].append(10001)
     energy_settings['eabs'].append(50)
     energy_settings['c1'].append(0.01)
     energy_settings['c2'].append(0.01)
     energy_settings['wcc'].append(50)
     energy_settings['wcr'].append(50)
-    energy_settings['timelimit'].append(12000)
-
-    energy_settings['max_energy'].append(10001)
-    energy_settings['eabs'].append(500)
-    energy_settings['c1'].append(0.01)
-    energy_settings['c2'].append(0.01)
-    energy_settings['wcc'].append(200)
-    energy_settings['wcr'].append(200)
     energy_settings['timelimit'].append(12000)
 
     energy_settings['max_energy'].append(int(1.001e5))

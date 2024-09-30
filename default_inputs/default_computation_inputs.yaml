@@ -1,0 +1,21 @@
+monoenergetic_line_study:
+  LOG_E: [2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3, 3.1,3.2,3.3,3.4, 3.5,3.6,3.7,3.8,3.9,4]
+  ANGLES: [0, 25.8, 36.9]
+  num_of_triggers_monoenergetic: 75000
+
+background_study:
+  how_many_runs: 55
+  min_energy: 150
+  min_energy_power: 2
+  max_energy: 11000
+  max_energy_power: 6
+  events_in_run: 30000
+  activation_file_name: "ActivationForCsI_10cm_1.5_v4.dat"
+
+reconstruction_parameters:
+  hits_reconstructed: [3,4,5,6,7,8,9,10,11]
+  CKD_depth: 3
+  R_analysis: !!float 0.7978845608028654  # Equivalent to np.sqrt(2.0 / np.pi)
+
+server_params:
+  sister_dir: "/sdf/scratch/kipac/MeV/gammatpc"
