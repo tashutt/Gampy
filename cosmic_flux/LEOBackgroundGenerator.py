@@ -62,7 +62,7 @@ class LEOBackgroundGenerator:
         solar modulation potential in MV at the time of the observation
     """
 
-    def __init__(self, altitude, inclination, solarmodulation=None):
+    def __init__(self, altitude, inclination, solarmodulation=None, data_location='cosmic_flux/data'):
         self.Alt = altitude  # instrument altitude (km)
         self.magl = inclination  # orbit inclination (deg.)
         self.geomlat = inclination  # geomagnetic latitude (deg.) TODO
@@ -97,6 +97,7 @@ class LEOBackgroundGenerator:
         self.HorizonAngle = 90.0 + np.rad2deg(np.arccos(
                             (EarthRadius + AtmosphereHeight)
                             / (EarthRadius+self.Alt)))
+        self.data_loc = data_location
 
     def log_interp1d(self, xx, yy, fill='extrapolate', kind='linear'):
         """Functions for an interpolation in log-space
@@ -117,7 +118,7 @@ class LEOBackgroundGenerator:
         """ Low energy neutrons spectrum at the top of the atmosphere
         as calculated in Lingenfelter 1963
         """
-        filename = 'cosmic_flux/Data/Neutrons_Lingenfelter.dat'
+        filename = f'{self.data_loc}/Neutrons_Lingenfelter.dat'
         data = pd.read_table(filename, sep=',')
 
         data["Ener(MeV)"] = data["Ener(MeV)"]
@@ -249,7 +250,7 @@ class LEOBackgroundGenerator:
         for the average Galactic center region (b+-1 deg, l+-2.5deg),
         Return a flux in ph /cm2 /s /keV /sr
         """
-        filename = 'cosmic_flux/Data//LATBackground.dat'
+        filename = f'{self.data_loc}/LATBackground.dat'
         data = pd.read_table(filename, sep='\s+', header=0, comment='#')
 
         fGC = self.log_interp1d(data['Energy'], data['FluxGCAv'], fill="NaN")
@@ -264,7 +265,7 @@ class LEOBackgroundGenerator:
         Galactic center region (b+-1 deg, l+-2.5deg),
         Return a flux in ph /cm2 /s /keV /sr
         """
-        filename = 'cosmic_flux/Data/LATBackground.dat'
+        filename = f'{self.data_loc}/LATBackground.dat'
         data = pd.read_table(filename, sep='\s+', header=0, comment='#')
 
         fDisk = self.log_interp1d(data['Energy'], data['FluxDiskAv'], fill="NaN")
@@ -470,7 +471,7 @@ class LEOBackgroundGenerator:
             Return a dataframe to be used by
             PrimaryElectrons and PrimaryPositrons
         """
-        filename = 'cosmic_flux/Data/AguilarElectronPositron.dat'
+        filename = f'{self.data_loc}/AguilarElectronPositron.dat'
         data = pd.read_table(filename, sep='\s+')
 
         data["Fluxele"] = data["Fluxele"]/10**10
@@ -617,7 +618,7 @@ class LEOBackgroundGenerator:
             Rigidity in GV and Flux in /m2 /sr /s /GV
             Return a flux in ph /cm2 /s /keV /sr
         """
-        filename = 'cosmic_flux/Data/AguilarProton.dat'
+        filename = f'{self.data_loc}/AguilarProton.dat'
         data = pd.read_table(filename, sep='\s+')
 
         E0 = ((m_p * c**2).to('GeV')).value
@@ -646,7 +647,7 @@ class LEOBackgroundGenerator:
             Rigidity in GV and Flux in /m2 /sr /s /GV
             Return a flux in ph /cm2 /s /keV /sr
         """
-        filename = 'cosmic_flux/Data/AguilarAlphas.dat'
+        filename = f'{self.data_loc}/AguilarAlphas.dat'
         data = pd.read_table(filename, sep='\s+')
 
         E0 = 2*((m_p * c**2 + m_n * c**2).to('GeV')).value

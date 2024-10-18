@@ -82,7 +82,7 @@ for nd in range(0, study.kit['num_depths']):
         nc = study.kit['case'][nd][npp]
 
         #     Apply study case
-        track.params.apply_study_case(study, nc)
+        track.read_params.apply_study_case(study, nc)
 
         #   Readout pixels, at depth from study
         track.readout_charge(depth=study.kit['depths'][nd])
