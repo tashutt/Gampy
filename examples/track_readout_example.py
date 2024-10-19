@@ -20,8 +20,8 @@ particle = 'electrons'
 
 #   Depth is a drift distance added to all the z values of
 #   the raw track.  That is, each element of the track drifts through
-#   a distance = depth - track.raw_track[2, :].   If depth = 0, then
-#   track.raw_track[2, :] needs to be negative.
+#   a distance = depth - track.raw[2, :].   If depth = 0, then
+#   track.raw[2, :] needs to be negative.
 depth = 0.05
 
 #   Find files - get list of files in folder with single energy tracks.
@@ -56,7 +56,7 @@ print( '  coarse tiles charge: '
 
 #   Display track alone, then display pixel readout alone
 track.display(pixels=False)
-track.display(raw_track=False)
+track.display(raw=False)
 
 #%%   Read out with LArPix
 track.reset_params(charge_readout_name='LArPix')

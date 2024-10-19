@@ -28,22 +28,19 @@ steering = {}
 
 steering['particles'] =  2
 steering['material'] =  'LAr'
-# steering['material'] =  'LXe'
 
 # steering ['energies'] \
 #     =  np.array([100, 200, 500, 1000, 2000, 5000, 10000], dtype=float)
 # steering ['num_tracks'] \
 #     =  np.array([2000, 2000, 2000, 1000, 1000, 500, 500], dtype=int)
 
-# steering ['energies'] = np.array([20000, 50000, 100000,
-#                                   200000, 500000, 1000000], dtype=float)
+steering ['energies'] =  np.array([10000], dtype=float)
+steering ['num_tracks'] \
+    = np.ones_like(steering ['energies'], dtype=int) * int(4000)
+
+# steering ['energies'] = np.array([10000, 20000, 50000, 100000], dtype=float)
 # steering ['num_tracks'] \
-#     =  np.array([25, 15, 10, 5, 2, 2], dtype=int)
-
-steering ['energies'] = np.array([200000, 500000, 1000000], dtype=float)
-steering ['num_tracks'] =  np.array([5, 2, 2], dtype=int)
-
-
+#       = np.ones_like(steering ['energies'], dtype=int) * int(1e4)
 
 #   Use this for big tracks, otherwise omit.
 compression_bin_size = None
@@ -59,8 +56,8 @@ p['output'] = '/Users/tshutt/Documents/Work/Simulations/Penelope/Tracks'
 penelope_tools.simple_penelope_track_maker(
     p,
     steering,
-    initial_direction=[0, 0, -1],
-    wipe_folders = False,
+    initial_direction='random',
+    wipe_folders=False,
     reset_origin=False,
     fresh_seed=True,
     delete_penelope_data=True,

@@ -7,14 +7,15 @@ Collection of event display routines
 
 TODO[ts] display_track: huge amount of clean up
   - projections not finished.
-  - can't select raw_track and drifted_track at same time
+  - can't select raw and drifted at tracks same time
 
 @author: tshutt
 """
 
-def display_track(self,
-                  raw_track=True,
-                  drifted_track=False,
+def display_track(track,
+                  raw=True,
+                  drifted=False,
+                  compressed=True,
                   pixels=True,
                   resolution=1e-5,
                   max_num_e=None,
@@ -97,11 +98,11 @@ def display_track(self,
 
     #   Check inpus and assign defaults
 
-    if drifted_track and not hasattr(self, 'drifted_track'):
-        drifted_track = False
-    if pixels and not hasattr(self, 'pixel_samples'):
+    if drifted and not hasattr(track, 'drifted'):
+        drifted = False
+    if pixels and not hasattr(track, 'pixel_samples'):
         pixels = False
-    if not (raw_track or drifted_track or pixels):
+    if not (raw or drifted or pixels):
         print('*** Nothing to display')
         return None, None, None
 
@@ -119,17 +120,24 @@ def display_track(self,
         print('*** Error in display_track - bad units ***')
 
     if center:
-        offset = self.raw_track['r'].mean(axis=1)
+        offset = track.raw['r'].mean(axis=1)
     else:
         offset = np.zeros((3,))
 
-    #   Raw or drfited track - assign, and subtract offset
-    if raw_track:
-        r = (self.raw_track['r'] - offset.reshape(3,1))
-        num_e = self.raw_track['num_e']
-    elif drifted_track or pixels:
-        r = (self.drifted_track['r'] - offset.reshape(3,1))
-        num_e = self.drifted_track['num_e']
+    #   Raw, compressed or drifted track - assign, and subtract offset
+    if (raw  and  hasattr(track, 'raw') ) \
+        and ~(compressed and hasattr(track, 'compressed')):
+        r = (track.raw['r'] - offset.reshape(3,1))
+        num_e = track.raw['num_e']
+    elif compressed and hasattr(track, 'compressed'):
+        r  = (track.compressed['r'] - offset.reshape(3,1))
+        num_e  = track.compressed['num_e']
+    elif drifted or pixels:
+        r = (track.drifted['r'] - offset.reshape(3,1))
+        num_e = track.drifted['num_e']
+    else:
+        print('Warningin display_track: inconsistent inputs')
+        return
 
     #   Extent of track and pixels
     track_extent = np.diff(tracks_tools.find_bounding_cube(
@@ -139,49 +147,49 @@ def display_track(self,
 
     #   Track gets digitized at physical scale resolution, and converted
     #   to scale for plotting
-    if raw_track or drifted_track:
+    if raw or drifted:
         r_p, n_e_p = prep_track(r, num_e, resolution, scale, track_extent)
 
     #   Plot limits
     if plot_lims is None:
-        if pixels: # and not raw_track:
-            pitch = self.read_params.pixels['pitch']
-            if 'r_raw' in self.pixel_samples:
+        if pixels: # and not raw:
+            pitch = track.read_params.pixels['pitch']
+            if 'r_raw' in track.pixel_samples:
                 plot_lims = tracks_tools.find_bounding_cube(
-                    self.pixel_samples['r_raw'] * scale, buffer = pitch / 2)
+                    track.pixel_samples['r_raw'] * scale, buffer = pitch / 2)
             else:
                 plot_lims = tracks_tools.find_bounding_cube(
-                    self.pixel_samples['r_triggered'] * scale,
+                    track.pixel_samples['r_triggered'] * scale,
                     buffer = pitch / 2)
         else:
             plot_lims = tracks_tools.find_bounding_cube(
                 r_p, buffer = track_extent * 0.05)
 
     #   Origin
-    origin = self.truth['origin'] - offset
+    origin = track.truth['origin'] - offset
 
     #   Initial direction, scaled.
-    s = self.truth['initial_direction'] * track_extent / 5
+    s = track.truth['initial_direction'] * track_extent / 5
 
     #   Convient plotting variables
     s_p = prep_s(s, origin, scale)
     o_p = origin * scale
 
     #   Tags
-    if self.truth["num_electrons"] < 1000:
-        num_tag = f', {self.truth["num_electrons"]:d} e-'
-    elif self.truth["num_electrons"] < 1e6:
-        num_tag = f', {self.truth["num_electrons"]/1000:4.1f}K e-'
+    if track.truth["num_electrons"] < 1000:
+        num_tag = f', {track.truth["num_electrons"]:d} e-'
+    elif track.truth["num_electrons"] < 1e6:
+        num_tag = f', {track.truth["num_electrons"]/1000:4.1f}K e-'
     else:
-        num_tag = f', {self.truth["num_electrons"]/1e6:4.1f}K e-'
-    if 'material' in self.meta:
-        material_tag = ' in ' + self.meta['material']
+        num_tag = f', {track.truth["num_electrons"]/1e6:4.1f}K e-'
+    if 'material' in track.meta:
+        material_tag = ' in ' + track.meta['material']
     else:
         material_tag = ''
-    # if self.meta['initial_particle']==1:
+    # if track.meta['initial_particle']==1:
     #     particle_tag = 'e'
     track_tag = (
-        f'{self.truth["track_energy"]:4.0f} keV'
+        f'{track.truth["track_energy"]:4.0f} keV'
         + material_tag
         + num_tag
         )
@@ -189,25 +197,25 @@ def display_track(self,
     if pixels:
         track_tag = track_tag + '; '
         pixel_tag \
-            = f'\n{self.read_params.pixels["pitch"]*1e6:4.0f}' \
+            = f'\n{track.read_params.pixels["pitch"]*1e6:4.0f}' \
             + ' $\mu$m pitch, ' \
             + '$\sigma_e$ = ' \
-            + f'{self.read_params.pixels["noise"]:4.1f} e-'
+            + f'{track.read_params.pixels["noise"]:4.1f} e-'
     else:
         pixel_tag = ''
-    if (pixels or drifted_track) and ('depth' in self.drifted_track):
+    if (pixels or drifted) and ('depth' in track.drifted):
         drift_tag \
-            = f'\n{self.drifted_track["depth"]*100:5.2f}' \
+            = f'\n{track.drifted["depth"]*100:5.2f}' \
                 + ' cm depth\n'
     else:
         drift_tag = ''
 
     #   Set maximum charges or samples
-    if  (raw_track or drifted_track) and max_num_e is None:
+    if  (raw or drifted) and max_num_e is None:
         max_num_e = n_e_p.max()
     if  pixels and max_pixel_samples is None:
         max_pixel_samples = np.max(
-            self.pixel_samples['samples_triggered']
+            track.pixel_samples['samples_triggered']
                 )
 
     #   Start plotting
@@ -216,7 +224,7 @@ def display_track(self,
     #   3D
     ax = fig.add_subplot(projection='3d')
 
-    if raw_track or drifted_track:
+    if raw or drifted:
         ax.scatter(
             r_p[0,],
             r_p[1,],
@@ -233,17 +241,17 @@ def display_track(self,
             ax.plot(s_p[0,], s_p[1,], s_p[2,], linewidth=1, c='brown')
 
     #   Plot pixel samples
-    if pixels and self.pixel_samples['r_triggered'].size:
+    if pixels and track.pixel_samples['r_triggered'].size:
         ax.scatter(
-            (self.pixel_samples['r_triggered'][0, :]
+            (track.pixel_samples['r_triggered'][0, :]
              - offset[0]) * scale,
-            (self.pixel_samples['r_triggered'][1, :]
+            (track.pixel_samples['r_triggered'][1, :]
              - offset[1]) * scale,
-            (self.pixel_samples['r_triggered'][2, :]
+            (track.pixel_samples['r_triggered'][2, :]
              - offset[2]) * scale,
-            s = self.pixel_samples['samples_triggered'] \
+            s = track.pixel_samples['samples_triggered'] \
                 / max_pixel_samples * 10**2,
-            c = self.pixel_samples['samples_triggered'] \
+            c = track.pixel_samples['samples_triggered'] \
                 / max_pixel_samples
             )
 
