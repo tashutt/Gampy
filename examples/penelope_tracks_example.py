@@ -43,7 +43,9 @@ steering ['num_tracks'] \
 #       = np.ones_like(steering ['energies'], dtype=int) * int(1e4)
 
 #   Use this for big tracks, otherwise omit.
-compression_bin_size = None
+compress = True
+compression_scale = 30e-6
+delete_raw = True
 
 #   Paths
 p={}
@@ -61,7 +63,5 @@ penelope_tools.simple_penelope_track_maker(
     reset_origin=False,
     fresh_seed=True,
     delete_penelope_data=True,
-    compression_bin_size=compression_bin_size
     )
-
 

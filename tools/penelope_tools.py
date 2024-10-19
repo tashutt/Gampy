@@ -16,7 +16,6 @@ def simple_penelope_track_maker(p,
                         reset_origin=True,
                         wipe_folders=False,
                         fresh_seed=True,
-                        compression_bin_size=None
                         ):
     """
     Runs Penelope to create electron tracks in a single material, over
@@ -179,9 +178,6 @@ def simple_penelope_track_maker(p,
             os.system('./pentracks < pentracks.in')
 
             print('   Parsing PENELOPE output to python tracks')
-            if not compression_bin_size==None and compression_bin_size>0:
-                print('Compressing to ' +
-                      f'{compression_bin_size*1e6:5.0f} microns')
 
             #   These are data files to process
             full_file_name_list \
@@ -199,7 +195,6 @@ def simple_penelope_track_maker(p,
                     read_params,
                     initial_direction=initial_direction,
                     reset_origin=reset_origin,
-                    compression_bin_size=compression_bin_size
                     )
 
                 #   Save meta data
@@ -207,6 +202,7 @@ def simple_penelope_track_maker(p,
                 track['meta']['initial_particle'] = particles
                 track['meta']['energy'] = energy
                 track['meta']['particle_ids'] = particle_ids
+
 
                 #  Save penelope_tracks
                 file_name = full_file_name.split(os.path.sep)[-1]
@@ -233,7 +229,6 @@ def parse_penelope_file(
         read_params,
         initial_direction=[0, 0, -1],
         reset_origin=True,
-        compression_bin_size=200e-6
         ):
     """
     Reads Penelope output track files in folder p_data, parses them to create
@@ -412,14 +407,6 @@ def parse_penelope_file(
         center = r.mean(axis=1)
         r = (r.transpose() - center).transpose()
         origin += -center
-
-    #   Compress
-    if not compression_bin_size==None and compression_bin_size>0:
-        r, num_e = tracks_tools.compress_track(
-            r,
-            num_e,
-            compression_bin_size
-            )
 
     #   Assign everything to track
     track = {}
