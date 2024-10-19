@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Collection of routines used to define and apply detector params.
+Routines that define readout, featuring the parameters class Params,
+and related functions.
 
+TODO: Move charge_drift_tools into here.  Deal with materials.
 TODO: Add versioning?
-TODO: Where should materials be?
 TODO: Finishing changing cells indexing: x,y -> 0, 1
 TODO: Overhaul hexagonal indexing.  Was previous worrying over
     linear_index, and fussing over row-column indexing needed?
-TODO: Move display code out.  Use pythonic patch, etc to simplify.
-TODO: move out remaining performance calcs - capacitance
+TODO: Move display code out?  Use pythonic patch, etc to simplify.
 TODO[ts]: see
     https://confluence.slac.stanford.edu/display/GTPC/Detector+Response
 
@@ -19,325 +19,46 @@ Major repackaging 3/21
 @author: tshutt
 """
 
-def default_geomega_inputs(cell_geometry='rectangular'):
+class Params:
     """
-    Default values of inputs defining the detector geometry for
-    geomega.
+    Creates Params object, a parametric description of the readout
 
-    TODO: Add versioning.   Call versions in geometry_tools?
-    """
+    inputs_file_name:
+        = 'default'     - use default .yaml inputs file
+        =  file_name    - full name of .yaml inputs file
 
-    inputs = {}
+    charge_readout_name - specifies readout architecture, if supplied
+        overides values in inputs file
 
-    inputs['vessel'] = {}
-    inputs['vessel']['r_outer'] = 1.85
-    inputs['vessel']['wall_thickness'] = 0.004
-    inputs['vessel']['lar_min_radial_gap'] = 0.05
+    cells - supplied from sims_tools.Params, or if not supplied, then
+        sims_tools.simple_cell() is used.
+        Currently for multiplie cells, all must be identical
 
-    inputs['cells'] = {}
-    inputs['cells']['geometry'] = cell_geometry
-    inputs['cells']['height'] = 0.175
-    inputs['cells']['flat_to_flat'] = 0.175
-    inputs['cells']['wall_thickness'] = 0.3e-3
-
-    inputs['acd'] = {'thickness': 0.007}
-
-    inputs['calorimeter'] = {}
-    inputs['calorimeter']['thickness'] = 0.0
-
-    inputs['shield'] = {}
-    inputs['shield']['thickness'] = 0.0
-    inputs['shield']['material'] = 'Lead'
-
-    inputs['anode_planes'] = {'thickness': 0.005}
-    inputs['cathode_plane'] = {'thickness': 0.005}
-
-    return inputs
-
-def default_response_inputs(charge_readout):
-    """"
-    Default values of inputs defining the detector response,
-    including the definition of the charge readout, which is not part
-    of the geometry
-
-    Needs versioning?
-    """
-
-    import sys
-
-    #%% Define inputs
-    inputs = {}
-
-    # Material
-    inputs['material'] = {}
-    inputs['material']['name'] = 'Ar'
-    inputs['material']['long_name'] = 'Argon'
-    inputs['material']['temperature'] = 110.0
-    inputs['material']['w'] = 0.0220
-    inputs['material']['recombination'] = 0.3000
-    inputs['material']['fano'] = 0.1160
-    inputs['material']['sigma_p'] = 0.0600
-
-    #   Charge Drfit
-    inputs['charge_drift'] = {}
-    inputs['charge_drift']['electron_lifetime'] = 10.0e-3
-    inputs['charge_drift']['drift_field'] = 0.5e5   #  V/m
-    inputs['charge_drift']['diffusion_fraction'] = 1.0
-
-    #  Light readout
-    inputs['light'] = {}
-    inputs['light']['spe_threshold'] = 3.0
-    inputs['light']['spe_noise'] = 0.2   #   About right for PMT???
-    inputs['light']['collection'] = 0.1
-
-    #   Simple single number for now
-    inputs['spatial_resolution'] = {}
-    inputs['spatial_resolution']['sigma_xy'] = 0.5e-3
-    inputs['spatial_resolution']['sigma_z'] = 0.5e-3
-
-    #   Simple energy resolution - should retire.  Currently
-    #   I think just
-    #   used for error estimate for .evta file.  Should do this
-    #   differently
-    """ Simplified treatment of energy, used to estimate energy
-    resolution as input to Revan  Resolution has
-    rt(E) term and a constant. rt(E) is sigma_o at energy_o,
-    constant is sigma_f
-    Might want to add a simple estimate of threshold here
-    """
-    inputs['simple_energy_resolution'] = {}
-    inputs['simple_energy_resolution']['sigma_o'] = 0.015
-    inputs['simple_energy_resolution']['energy_o'] = 1000
-    inputs['simple_energy_resolution']['sigma_f'] = 5
-
-    #%%  Charge readout
-    """
-    Charge readout is independent of detector geometry.  The readout
-    defined here extends over a cell. The cells are
-    defined in detector geometery.  The simplest geometry has only
-    a single cell.
-
-    Note 'type' which defines sensor type for charge_readout_tools
-    """
-
-    if charge_readout=='GAMPixG':
-        """ GAMPix for GammaTPC """
-
-        #  Coarse grids
-        inputs['coarse_grids'] = {}
-        inputs['coarse_grids']['type'] = 'coarse_grids'
-        inputs['coarse_grids']['pitch'] = 10*1e-3
-        inputs['coarse_grids']['wire_radius'] = 100e-6
-        inputs['coarse_grids']['gap'] = 10*1e-3
-        inputs['coarse_grids']['power_per_wire'] = 10e-3
-        inputs['coarse_grids']['noise'] = 20
-        inputs['coarse_grids']['signal_fraction'] = 0.6
-        inputs['coarse_grids']['signal_sharing'] = 4  # of wires measured
-        inputs['coarse_grids']['threshold_sigma'] = 4.0
-
-        #  Pixels
-        inputs['pixels'] = {}
-        inputs['pixels']['type'] = 'pixels'
-        inputs['pixels']['pitch'] = 500e-6
-        inputs['pixels']['power_per_pixel'] = 1e-3
-        inputs['pixels']['noise'] = 25
-        inputs['pixels']['threshold_sigma'] = 4.0
-        inputs['pixels']['pad_width'] = 20e-6
-        inputs['pixels']['sio2_thickenss'] = 1e-6
-        inputs['pixels']['stray_capacitance'] = 0.01e-12
-
-    elif charge_readout=='GAMPixD':
-        """ GAMPix for DUNE """
-
-        #  Coarse tiles
-        inputs['coarse_tiles'] = {}
-        inputs['coarse_tiles']['type'] = 'coarse_tiles'
-        inputs['coarse_tiles']['pitch'] = 0.1
-        inputs['coarse_tiles']['gap'] = 0.01
-        inputs['coarse_tiles']['power_per_tile'] = 1e-3
-        inputs['coarse_tiles']['noise'] = 50
-        inputs['coarse_tiles']['signal_fraction'] = 1
-        inputs['coarse_tiles']['threshold_sigma'] = 5.0
-
-        #  Pixels
-        inputs['pixels'] = {}
-        inputs['pixels']['type'] = 'pixels'
-        inputs['pixels']['pitch'] = 0.005
-        inputs['pixels']['power_per_pixel'] = 1e-3
-        inputs['pixels']['noise'] = 50
-        inputs['pixels']['threshold_sigma'] = 4.0
-
-    elif charge_readout=='LArPix':
-        """ LArPix for DUNE """
-
-        #   These are "virtual" coarse tiles - used for pixel readout
-        #   computation only
-        inputs['coarse_tiles'] = {}
-        inputs['coarse_tiles']['pitch'] = 0.1
-
-        #  Pixels
-        inputs['pixels'] = {}
-        inputs['pixels']['type'] = 'pixels'
-        inputs['pixels']['pitch'] = {}
-        inputs['pixels']['pitch'] = 0.005
-        inputs['pixels']['power_per_pixel'] = 1e-3
-        inputs['pixels']['noise'] = 1000
-        inputs['pixels']['threshold_sigma'] = 5.0
-
-    elif charge_readout=='AnodeGridG':
-        """ Single direction of anode wires for GammaTPC """
-
-        #  Anode wires
-        inputs['anode_grid'] = {}
-        inputs['anode_grid']['type'] = 'anode_grid'
-        inputs['anode_grid']['pitch'] = 0.001
-        inputs['anode_grid']['power_per_wire'] = 1e-3
-        inputs['anode_grid']['noise'] = 50
-        inputs['anode_grid']['threshold_sigma'] = 5.0
-
-    elif charge_readout=='AnodeGridD':
-        """ Single direction of anode wires for DUNE """
-
-        #  Anode wires
-        inputs['anode_grid'] = {}
-        inputs['anode_grid']['type'] = 'anode_grid'
-        inputs['anode_grid']['pitch'] = 0.004
-        inputs['anode_grid']['power_per_wire'] = 1e-3
-        inputs['anode_grid']['noise'] = 800
-        inputs['anode_grid']['threshold_sigma'] = 5.0
-
-    else:
-        sys.exit('*** Error in default_inputs: unrecognized charge readout')
-
-    return inputs
-
-class GeoParams:
-    """
-    Params object for geometry
+    The Params object has .calculate() method to produce outputs from inputs.
+    Changes to parameters should exclusively done by changing inputs,
+    then calculating outputs before use.
     """
 
     def __init__(self,
-                 detector_geometry='simple',
-                 cell_geometry='rectangular',
-                 bounding_box=None,
+                 inputs_file_name='default',
+                 charge_readout_name=None,
+                 cells=None,
                  ):
-        """
-        Initializes geometry parameters:
-            + defines geometry topology, and cell geometry
-            + loads default input constants
-            + calculates parameters.
-        """
+        """ """
+        import sims_tools
 
-        import sys
+        #   Load inputs
+        self.inputs, self.charge_readout_name = get_params_inputs(
+            inputs_file_name,
+            charge_readout_name,
+            )
 
-        #   Set cell and detector geometries in params
-        #   Set versions in params here in future
-        self.detector_geometry = detector_geometry
-        self.cell_geometry = cell_geometry
-
-        #   For geomega geometry, get default inputs
-        #   In the future, will need versioning here
-        if detector_geometry=='geomega':
-            self.inputs = default_geomega_inputs(cell_geometry)
-
-        #   For simple detetor geometry, cell geometry is rectangular
-        elif detector_geometry=='simple':
-            if cell_geometry!='rectangular':
-                print("*** Warning: cell_gometry set to 'rectangular'")
-            cell_geometry='rectangular'
-
-        #   Else - bad geometry
+        #   If cells not provided, get from sims default, otherwise use
+        #   supplied input
+        if not cells:
+            self.cells = sims_tools.get_simple_cell_params()
         else:
-            sys.exit('Error in GeoParam - bad detector geometry')
-
-        #   This flag used to turn off calculations when used after
-        #   Cosima has run.   Perhaps better done with a decorator?
-        self.live = True
-
-        #   Calculate geometry
-        self.calculate(bounding_box)
-
-    def calculate(self,
-                  bounding_box=None,
-                  ):
-        """
-        Calculates parameters based on input constants
-        """
-
-        import sys
-        import numpy as np
-
-        import geometry_tools
-
-        if not self.live:
-            sys.exit('Error: GeoParams calculate not allowed in this state')
-
-        #   Simple geometry
-        if self.detector_geometry=='simple':
-
-            #   Set default bounding box if not supplied
-            if bounding_box is None:
-                bounding_box = np.array(
-                    [[-1, -1, -1], [1, 1, 1]],
-                    dtype=float
-                    ).T
-
-            #   All that is calculated is cells
-            self.cells = geometry_tools.init_simple_geometry(
-                bounding_box,
-                )
-
-        #   Geomega geometry
-        elif self.detector_geometry=='geomega':
-
-            #   Assign all inputs to attributes of params
-            for key in self.inputs.keys():
-                attribute_dictionary = {}
-                for subkey in self.inputs[key]:
-                    attribute_dictionary[subkey] \
-                        = self.inputs[key][subkey]
-                setattr(self, key, attribute_dictionary)
-
-            #   Calcaulate geomaga geometry.
-            #   Different versions will be handled here.
-            self = geometry_tools.calculate_geomega_geometry_v1(self)
-
-class ResponseParams:
-    """
-    Parameter describing the detector readout.  There are a set of
-    "input" parameters, from which all else is derived via the "recalculate"
-    method.
-    To change parameters, modify input parameters and recalculate - do not
-    directly modify derived parameters.
-    """
-
-    def __init__(self,
-                 charge_readout='GAMPixG',
-                 geo_params=None,
-                 ):
-        """
-        Initializes response parameters:
-            + defines charge readout
-            + loads default input constants
-            + calculates parameters.
-
-        Inputs:
-            geo_params - geometry parameters.  If not supplied, then
-                uses GeoParams default
-            charge_readout - Options defined in charge_readout_tools
-        """
-
-        #   Default simple geometry if geo_params not supplied
-        if not geo_params:
-            geo_params = GeoParams()
-
-        #   Save cells from geo_params, and charge readout to params
-        self.cells = geo_params.cells
-        self.cell_geometry = geo_params.cell_geometry
-        self.charge_readout = charge_readout
-
-        #   Default inputs
-        self.inputs = default_response_inputs(charge_readout)
+            self.cells = cells
 
         #   Calculate
         self.calculate()
@@ -345,24 +66,18 @@ class ResponseParams:
     def calculate(self):
         """
         Calculates parameters based on input constants
-
-        TODO revisit charge readout decision making?
         """
-
-        import charge_drift_tools
-
         import math
         import numpy as np
 
-        #   Dielectric constants
-        eps = define_eps()
+        import charge_drift_tools
 
         #%%   Assign all inputs to attributes of params
         for key in self.inputs.keys():
             attribute_dictionary = {}
-            for subkey in self.inputs[key]:
-                attribute_dictionary[subkey] \
-                    = self.inputs[key][subkey]
+            for sub_key in self.inputs[key]:
+                attribute_dictionary[sub_key] \
+                    = self.inputs[key][sub_key]
             setattr(self, key, attribute_dictionary)
 
         #%%   Drift properties
@@ -389,78 +104,102 @@ class ResponseParams:
 
             #   Coarse grid wire centers.  Start with convenient variables
             pitch = self.coarse_grids['pitch']
-            span = [self.cells['width_xi'],
-                    self.cells['width_yi']]
+            if self.cells['geometry']=='rectangular':
+                span = [self.cells['width_x'], self.cells['width_y']]
+            elif self.cells['geometry']=='hexagonal':
+                span = [self.cells['flat_to_flat'],
+                        self.cells['corner_to_corner']]
 
-            #   Save pitch as coarse_pitch
+            #   Assume coarse grids are always the biggest coarse_pitch
             self.coarse_pitch = pitch
 
             #   Find edges and centers. Centers are wire locations.
-            self.coarse_grids['edges'] = []
+            edges = []
             self.coarse_grids['centers'] = []
             for n in range(2):
                 num_edges = math.floor(span[n] / pitch)
-                self.coarse_grids['edges'].append(
+                edges.append(
                     np.arange(-num_edges / 2, num_edges / 2 + 1) * pitch
                     )
                 self.coarse_grids['centers'].append(
-                    self.coarse_grids['edges'][n][0:-1] + pitch / 2
+                    edges[n][0:-1] + pitch / 2
                     )
 
-            #   Description for plotting.   Wires described by their ends
-            coarse_grids['plotting'] = {}
-            coarse_grids['plotting']['wire_ends_x'] = {}
-            coarse_grids['plotting']['wire_ends_y'] = {}
+            #   Locations of wire ends.  Useful for plotting.
+            #   Dimensions are [x-y, end, wire]
+            coarse_grids['x_wire_ends'] = {}
+            coarse_grids['y_wire_ends'] = {}
 
             #   Rectangular cells are fairly simple
-            if self.cell_geometry=='rectangular':
+            if self.cells['geometry']=='rectangular':
                 xe = []
                 ye = []
                 for y in coarse_grids['centers'][1]:
                     xe.append(np.array([-span[0] / 2, span[0] / 2]))
                     ye.append(np.array([y, y]))
-                    coarse_grids['plotting']['wire_ends_x']['x'] = xe
-                    coarse_grids['plotting']['wire_ends_x']['y'] = ye
+                    coarse_grids['x_wire_ends']['x'] = xe
+                    coarse_grids['x_wire_ends']['y'] = ye
                 for x in coarse_grids['centers'][0]:
                     xe.append(np.array([x, x]))
                     ye.append(np.array([-span[1] / 2, span[1] / 2]))
-                    coarse_grids['plotting']['wire_ends_y']['x'] = xe
-                    coarse_grids['plotting']['wire_ends_y']['y'] = ye
+                    coarse_grids['y_wire_ends']['x'] = xe
+                    coarse_grids['y_wire_ends']['y'] = ye
 
             #   Hexagonal cells take work
-            elif self.cell_geometry=='hexagonal':
+            elif self.cells['geometry']=='hexagonal':
 
-                xe = []
-                ye = []
+                # xe = []
+                # ye = []
+                coarse_grids['x_wire_ends'] = []
                 for y in coarse_grids['centers'][1]:
-                    xe.append(np.array([
+                    ends = np.zeros((2, 2), dtype=float)
+                    ends[0, :] = np.array([
                         - span[0] / 2 + abs(y) / math.sqrt(3),
                         span[0] / 2 - abs(y) / math.sqrt(3)
-                        ]))
-                    ye.append(np.array([y, y]))
-                coarse_grids['plotting']['wire_ends_x']['x'] = xe
-                coarse_grids['plotting']['wire_ends_x']['y'] = ye
+                        ])
+                    ends[1, :] = np.array([y, y])
+                    # xe.append(np.array([
+                    #     - span[0] / 2 + abs(y) / math.sqrt(3),
+                    #     span[0] / 2 - abs(y) / math.sqrt(3)
+                    #     ]))
+                    # ye.append(np.array([y, y]))
+                    coarse_grids['x_wire_ends'].append(ends)
+                # coarse_grids['x_wire_ends']['x'] = xe
+                # coarse_grids['x_wire_ends']['y'] = ye
 
-                xe = []
-                ye = []
+                coarse_grids['y_wire_ends'] = []
                 for x in coarse_grids['centers'][0]:
+                    ends = np.zeros((2, 2), dtype=float)
                     if x < - span[0] / 4:
-                        xe.append(np.array([x, x]))
-                        ye.append(np.array([
+                        ends[0, :] = np.array([x, x])
+                        ends[1, :] = np.array([
                             - (span[0] / 2 + x) * math.sqrt(3),
                             (span[0] / 2 + x) * math.sqrt(3)
-                            ]))
+                            ])
+                        # xe.append(np.array([x, x]))
+                        # ye.append(np.array([
+                        #     - (span[0] / 2 + x) * math.sqrt(3),
+                        #     (span[0] / 2 + x) * math.sqrt(3)
+                        #     ]))
                     elif x < span[0] / 4:
-                        xe.append(np.array([x, x]))
-                        ye.append(np.array([-span[1] / 2, span[1] / 2]))
+                        ends[0, :] = np.array([x, x])
+                        ends[1, :] = np.array([-span[1] / 2, span[1] / 2])
+                        # xe.append(np.array([x, x]))
+                        # ye.append(np.array([-span[1] / 2, span[1] / 2]))
                     else:
-                        xe.append(np.array([x, x]))
-                        ye.append(np.array([
+                        ends[0, :] = np.array([x, x])
+                        ends[1, :] = np.array([
                             - (span[0] / 2 - x) * math.sqrt(3),
                             (span[0] / 2 - x) * math.sqrt(3),
-                            ]))
-                coarse_grids['plotting']['wire_ends_y']['x'] = xe
-                coarse_grids['plotting']['wire_ends_y']['y'] = ye
+                            ])
+                        # xe.append(np.array([x, x]))
+                        # ye.append(np.array([
+                        #     - (span[0] / 2 - x) * math.sqrt(3),
+                        #     (span[0] / 2 - x) * math.sqrt(3),
+                        #     ]))
+                    coarse_grids['y_wire_ends'].append(ends)
+                # coarse_grids['y_wire_ends']['x'] = xe
+                # coarse_grids['y_wire_ends']['y'] = ye
 
             #   Sampling time and pitch - equal to gap
             coarse_grids['sampling_pitch'] = self.coarse_grids['gap']
@@ -468,34 +207,17 @@ class ResponseParams:
                 coarse_grids['sampling_pitch'] \
                     / self.charge_drift['velocity']
 
-            #   TODO: Move this elsehwere
-            #   Capacitances is approximate per length for
-            #   plane of grid wires between grounded plates,
-            #   following Erskine.  See
-            #   Van Esch criticism that this
-            #   isn't correct for noise estimates.
-            coarse_grids['capacitance'] = (
-                2 * math.pi * eps['lar'] * eps['not']
-                / (math.pi
-                   * self.coarse_grids['gap']
-                / self.coarse_grids['pitch']
-                - math.log(2 * math.pi
-                   * self.coarse_grids['wire_radius']
-                / self.coarse_grids['pitch']))
-                * self.cells['width_xi']
-                )
-
-        #%%   Anode grid
+        #%%   Anode grid - 1D wires oriented along y
         if hasattr(self, 'anode_grid'):
 
             #   Convenient variable
             pitch = self.anode_grid['pitch']
 
-            #   Save pitch as coarse_pitch
+            #   Assume these grids are the biggest coarse_pitch
             self.coarse_pitch = pitch
 
             #   Wires orienteted along y, so span based on cell x width
-            span = self.cells['width_xi']
+            span = self.cells['width_x']
 
             #   Find edges and centers. Centers are wire locations.
             num_edges = math.floor(span / pitch)
@@ -510,9 +232,9 @@ class ResponseParams:
                 self.anode_grid['sampling_pitch'] \
                     / self.charge_drift['velocity']
 
-        #%%   Chip array for GAMPixG defined based on coarse grids.
+        #%%   If GAMPixG, handle chip array, based on coarse grids.
         #   Note - there are no input params for chip_array.
-        if self.charge_readout=='GAMPixG':
+        if self.charge_readout_name=='GAMPixG':
 
             self.chip_array = {}
 
@@ -524,12 +246,13 @@ class ResponseParams:
 
             #   Array pitch is same as coarse grids
             self.chip_array['sampling_pitch'] = self.coarse_grids['gap']
-            self.chip_array['sampling_time'] = \
-                self.chip_array['sampling_pitch'] \
-                    / self.charge_drift['velocity']
+            self.chip_array['sampling_time'] = (
+                self.chip_array['sampling_pitch']
+                / self.charge_drift['velocity']
+                )
 
             #   Rectangular cells are fairly simple
-            if self.cell_geometry=='rectangular':
+            if self.cells['geometry']=='rectangular':
 
                 pitch = np.diff(self.coarse_grids['centers'][0][:2])
 
@@ -551,13 +274,13 @@ class ResponseParams:
 
             #   Hexagonal calculations. The cell is oriented with an
             #   edge on the x axis.  tiles are arranged in rows.
-            elif self.cell_geometry=='hexagonal':
+            elif self.cells['geometry']=='hexagonal':
 
                 #   convenient variables
                 w =  self.chip_array['pitch']
-                num_rows = math.floor(self.cells['width_yi'] / w)
+                num_rows = math.floor(self.cells['corner_to_corner'] / w)
                 slope = 1 / math.sqrt(3)
-                xp = self.cells['width_yi'] * slope
+                xp = self.cells['corner_to_corner'] * slope
 
                 #   ys is y location of tile centers, nx is the number
                 #   of tiles in each row of ys
@@ -565,8 +288,8 @@ class ResponseParams:
 
                 #   Odd number of rows
                 if num_rows % 2:
-                    m = (num_rows-1) / 2
-                    ys = np.arange(0, m+1) * w
+                    m = (num_rows - 1) / 2
+                    ys = np.arange(0, m + 1) * w
                     xlim = xp - (ys + w / 2) * slope
                     nx = np.fix(2 * xlim / w).astype(int)
                     ys = np.insert(ys, 0, -np.flip(ys[1:]))
@@ -592,93 +315,6 @@ class ResponseParams:
                 #   y is simple array
                 self.chip_array['centers'][1] = ys
 
-            # #   Numbers
-            # num_tiles = 0
-            # num_rows =len(self.chip_array['centers']['x'])
-            # num_columns = []
-            # for xs in self.chip_array['centers']['x']:
-            #     num_columns.append(len(xs))
-            #     num_tiles += len(xs)
-            # self.pixels['num_tiles'] = num_tiles
-            # self.pixels['num_tile_columns'] \
-            #     = np.array(num_columns, dtype=int)
-            # self.pixels['num_tile_rows'] = num_rows
-
-            # #   Linear index has strucure:
-            # #   ...[row][column]
-            # linear_index = []
-            # i_o = 0
-            # n = 0
-            # for xs in self.chip_array['centers']['x']:
-            #     # linear_index.append((np.arange(0, len(xs)) + i_o).tolist())
-            #     linear_index.append(np.arange(0, len(xs)) + i_o)
-            #     i_o = linear_index[n][-1] + 1
-            #     n += 1
-            # self.chip_array['linear_index'] = linear_index
-
-            # #   Row  and column indices have structures:
-            # #   ...['row_index'][tile_number]
-            # #   ...['column_index'][tile_number]
-            # row_index = []
-            # column_index = []
-            # n = 0
-            # for row in range(num_rows):
-            #     for column in range(num_columns[row]):
-            #         row_index.append(row)
-            #         column_index.append(column)
-            # self.chip_array['row_index'] \
-            #     = np.array(row_index, dtype=int)
-            # self.chip_array['column_index'] \
-            #     = np.array(column_index, dtype=int)
-
-            # #   Tile edges in x and y
-            # x_edges = []
-            # for xs in self.chip_array['centers']['x']:
-            #     x_edges.append(np.append(xs - w / 2, xs[-1] + w / 2))
-            # y_edges = np.append(ys - w / 2, ys[-1] + w / 2)
-            # self.chip_array['edges'] = {}
-            # self.chip_array['edges']['x'] = x_edges
-            # self.chip_array['edges']['y'] = y_edges
-
-            # #   Sampling time and pitch - equal to lateral pitch
-            # self.chip_array['sampling_pitch'] = self.pixels['pitch']
-            # self.chip_array['sampling_time'] = \
-            #     self.chip_array['sampling_pitch'] \
-            #         / self.charge_drift['velocity']
-
-            # #   Tile outlines for plotting
-            # self.chip_array['plotting'] = {}
-            # self.chip_array['plotting']['outline'] = {}
-            # self.chip_array['plotting']['outline_rc'] = {}
-            # self.chip_array['plotting']['outline']['x'] = []
-            # self.chip_array['plotting']['outline']['y'] = []
-            # self.chip_array['plotting']['outline_rc']['x'] = []
-            # self.chip_array['plotting']['outline_rc']['y'] = []
-            # x = []
-            # y = []
-            # for row in range(num_rows):
-            #     x_outline = []
-            #     y_outline = []
-            #     for xs in self.chip_array['centers']['x'][row]:
-            #         xo = (
-            #             xs
-            #             + np.array([-1, 1, 1, -1, -1]) * w / 2
-            #             )
-            #         yo = (
-            #             self.chip_array['centers']['y'][row]
-            #             + np.array([-1, -1, 1, 1, -1]) * w / 2
-            #             )
-            #         x.append(xo)
-            #         y.append(yo)
-            #         x_outline.append(xo)
-            #         y_outline.append(yo)
-            #     self.chip_array['plotting']['outline_rc']['x'] \
-            #         .append(x_outline)
-            #     self.chip_array['plotting']['outline_rc']['y'] \
-            #         .append(y_outline)
-            # self.chip_array['plotting']['outline']['x'] = x
-            # self.chip_array['plotting']['outline']['y'] = y
-
         #%%   Coarse tiles
         if hasattr(self, 'coarse_tiles'):
 
@@ -694,15 +330,14 @@ class ResponseParams:
             self.coarse_tiles['centers'] = []
             self.coarse_tiles['edges'] = []
 
+            #   Span is cell width.
+            span = [self.cells['width_x'], self.cells['width_y']]
+
             #   Loop over y, x
             for n in range(2):
 
-                #   Span is cell width.
-                if n==0: span = self.cells['width_xi']
-                else: span = self.cells['width_yi']
-
                 #   centers of tile edges and centers
-                num_edges = math.floor(span / pitch)
+                num_edges = math.floor(span[n] / pitch)
                 edges = np.arange(-num_edges / 2, num_edges / 2 + 1) * pitch
                 centers = edges[0:-1] + pitch / 2
 
@@ -712,42 +347,53 @@ class ResponseParams:
 
             #   Sampling time and pitch, equal to gap .  But don't create
             #   for LArPix since there this sensor is virtual
-            if not self.charge_readout=='LArPix':
+            if not self.charge_readout_name=='LArPix':
                 self.coarse_tiles['sampling_pitch'] \
                     = self.coarse_tiles['gap']
                 self.coarse_tiles['sampling_time'] \
                     = self.coarse_tiles['sampling_pitch'] \
                         / self.charge_drift['velocity']
 
-        #%%   Pixels - this smallest read out unit, nominally a chip
+        #%%   Pixels - this smallest read out unit, and should match to
+        #   an actual or logical chip
         if hasattr(self, 'pixels'):
 
             #   Convenient variable.  Note we assume that pitch is equal in
             #   both directions
             pitch = self.pixels['pitch']
 
+            #   If LArPix, this is coarse pitch
+            if self.charge_readout_name=='LArPix':
+                self.coarse_pitch = pitch
+
             #   Span depends on architecture
-            if self.charge_readout=='GAMPixG':
-                span = self.chip_array['pitch']
-            elif self.charge_readout=='GAMPixD' \
-                or self.charge_readout=='LArPix':
-                span = self.coarse_tiles['pitch']
+            if self.charge_readout_name=='GAMPixG':
+                span = [self.chip_array['pitch']] * 2
+            elif self.charge_readout_name=='GAMPixD':
+                span = [self.coarse_tiles['pitch']] * 2
+            elif self.charge_readout_name=='LArPix':
+                span = [self.cells['width_x'], self.cells['width_y']]
+
 
             #   Edges and centers
             self.pixels['centers'] = []
             self.pixels['edges'] = []
-            num_edges = math.floor(span / pitch)
             for n in range(2):
+                num_edges = math.floor(span[n] / pitch)
                 self.pixels['edges'].append(
                     np.arange(-num_edges / 2, num_edges / 2 + 1) * pitch)
                 self.pixels['centers'].append(
                     self.pixels['edges'][n][0:-1] + pitch / 2)
 
             #   Focus factor given that pixels may not fill span.
-            focus_factor = (
-                self.pixels['edges'][0][-1]
-                - self.pixels['edges'][0][0]
-                ) / span
+            #   TODO: implement this fully?  Also, should also
+            #   apply to coarse_tiles???
+            focus_factor = []
+            for n in range(2):
+                focus_factor.append(
+                    (self.pixels['edges'][0][-1] - self.pixels['edges'][0][0])
+                    / span[n]
+                    )
             self.pixels['focus_factor'] = focus_factor
 
             #   Sampling time and pitch - equal to lateral pitch
@@ -757,7 +403,7 @@ class ResponseParams:
                     / self.charge_drift['velocity']
 
     def apply_study_case(self, study, case):
-        """ Apply case of study to inputs, then recalculate params"""
+        """ Apply case of study to inputs, and calculate params """
 
         if not hasattr(self, 'meta'):
             self.meta = {}
@@ -775,11 +421,173 @@ class ResponseParams:
         #   Recalculate derived values
         self.calculate()
 
+def get_params_inputs(
+             inputs_file_name='default',
+             charge_readout_name=None,
+             ):
+    """Load default or supplied params inputs, with charge_readout_name
+    used to choose amongst inputs """
+
+    import os
+    import yaml
+
+    #   Set file to default if not supplied
+    if inputs_file_name == 'default':
+        inputs_file_name = os.path.join(
+            os.path.dirname(os.path.split(__file__)[0]),
+            'inputs',
+            'default_readout_inputs.yaml'
+            )
+
+    #   Load inputs
+    with open(inputs_file_name, 'r') as file:
+        inputs = yaml.safe_load(file)
+
+    #   Take charge readout from inputs if not supplied, and remove
+    #   from inputs in any case
+    if not charge_readout_name:
+        charge_readout_name = inputs['charge_readout_name']
+    inputs.pop('charge_readout_name')
+
+    #   Assign appropriate charge readout inputs
+    if charge_readout_name == 'GAMPixG':
+        inputs['coarse_grids'] \
+            = inputs['charge_readout']['GAMPixG']['coarse_grids']
+        inputs['pixels'] \
+            = inputs['charge_readout']['GAMPixG']['pixels']
+    elif charge_readout_name == 'GAMPixD':
+        inputs['coarse_tiles'] \
+            = inputs['charge_readout']['GAMPixD']['coarse_tiles']
+        inputs['pixels'] \
+            = inputs['charge_readout']['GAMPixD']['pixels']
+    elif charge_readout_name == 'LArPix':
+        inputs['pixels'] \
+            = inputs['charge_readout']['LArPix']['pixels']
+    elif charge_readout_name == 'AnodeGridG':
+        inputs['anode_grid'] \
+            = inputs['charge_readout']['AnodeGridG']['anode_grid']
+    elif charge_readout_name == 'AnodeGridD':
+        inputs['anode_grid'] \
+            = inputs['charge_readout']['AnodeGridD']['anode_grid']
+
+    #   Remove charge_readout from inputs
+    inputs.pop('charge_readout')
+
+    return inputs, charge_readout_name
+
+def cell_to_chip_coordinates(
+        r_in,
+        chip_indices,
+        chip_locations,
+        reverse=False
+        ):
+    """
+    Translates r_in to r_out, between cell coordinates and
+        pixel chip coordinates.
+
+    Default is from cell to pixel_chip; if reverse then is pixel_chip to cell
+
+    Inputs:
+        r_in - locations in cell coordates. Dimension [3, :] or [2, :].
+            The z coordinate, if present, is not affected.
+        chip_indices - array of indices of chips for each entry in r_in
+        chip_locations -
+    pixel_chips is from params
+
+    r_in is currenty on 2 dimensions [space, element]
+
+    TODO[ts]: implement for hits - model on global to cell,
+        including comments.??   Had opposit idea in struck chips below
+    """
+
+    import numpy as np
+    import copy
+
+    r_out = copy.copy(r_in)
+
+    #   If one chip, transpose it
+    if chip_indices.ndim==1: chip_indices = chip_indices[:, None]
+
+    #   Create array of length of long dimension of r_in with
+    #   centers of chips for each entry in r_in
+    x_mesh, y_mesh = np.meshgrid(chip_locations[0], chip_locations[1])
+    chip_centers = np.zeros_like(chip_indices[0:2, :], dtype=float)
+    chip_centers[0, :] = x_mesh[chip_indices[1, :], chip_indices[0, :]]
+    chip_centers[1, :] = y_mesh[chip_indices[1, :], chip_indices[0, :]]
+
+    #   Translate chip to cell: add the center(s)
+    if reverse:
+        r_out[0:2, :] += chip_centers
+
+    #   Translate cell to chip: subtract the center(s)
+    else:
+        r_out[0:2, :] -= chip_centers
+
+    return r_out
+
+def find_struck_chips_hits(hits, params):
+    """
+    Using r_cell in hits, finds chips that are struck for each hit,
+    returns hits['chip'], the index of chips struck.
+
+    TODO:  Use more general input than hits - r perhaps?
+    TODO[ts]: reconcile this with find_span in charge_readout_tools
+    TODO[bt]: Convert to awkward when needed
+    """
+
+    import numpy as np
+
+    hits['chip'] = np.zeros(hits['r'][0, :, :].shape, dtype=int)
+
+    for nh in range(hits['r'][0,:,0].size):
+
+        x = hits['r_cell'][0, nh, hits['alive'][nh, :]]
+        y = hits['r_cell'][1, nh, hits['alive'][nh, :]]
+
+        #   Subtract 1 to get first-index-zero indexing
+        rows = np.digitize(
+            y,
+            params.pixel_chips['edges']['y']
+            ) - 1
+
+        in_row_bounds = \
+            (rows >= 0) & \
+            (rows < params.pixels['num_tile_rows'])
+
+        chip = np.zeros(x.shape, dtype=int) - 1
+
+        for row in np.unique(rows[in_row_bounds]):
+
+            in_row = rows==row
+
+            #   Subtract 1 to get first-index-zero indexing
+            columns = np.digitize(
+                x[in_row],
+                params.pixel_chips['edges']['x'][row]
+                ) - 1
+
+            in_column_bounds = \
+                (columns>=0) & \
+                (columns<params.pixels['num_tile_columns'][row])
+
+            these_chips = np.zeros(in_column_bounds.size, dtype=int) - 1
+
+            these_chips[in_column_bounds] = np.array(
+                params.pixels['linear_index'][row]
+                )[columns[in_column_bounds]]
+
+            chip[in_row] = these_chips
+
+        hits['chip'][nh,  hits['alive'][nh, :]] = chip
+
+    return hits
+
 def define_eps():
     """ inputs for capacitance calculation.  (In principle at
     least the LAr and LXe values should derive from
     material definition detector
     defition """
+    # TODO - kill this.
 
     eps = {}
     eps = {
