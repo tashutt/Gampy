@@ -112,30 +112,30 @@ params = params_tools.ResponseParams(geo_params=geo_params)
 
 
 STUDY = "Optimistic"
-events.read_params.inputs['coarse_grids']['signal_fraction'] = 0.9
+events.params.inputs['coarse_grids']['signal_fraction'] = 0.9
 
 if STUDY == "Optimistic":
-    events.read_params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
-    events.read_params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
-    events.read_params.inputs['light']['collection'] = 0.3
-    events.read_params.inputs['material']['sigma_p'] = 0.04
-    events.read_params.inputs['coarse_grids']['noise'] = 10
+    events.params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
+    events.params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
+    events.params.inputs['light']['collection'] = 0.3
+    events.params.inputs['material']['sigma_p'] = 0.04
+    events.params.inputs['coarse_grids']['noise'] = 10
 
 elif STUDY == "Neutral":
-    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
-    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
-    events.read_params.inputs['light']['collection'] = 0.1
-    events.read_params.inputs['material']['sigma_p'] = 0.05
-    events.read_params.inputs['coarse_grids']['noise'] = 20
+    events.params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
+    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
+    events.params.inputs['light']['collection'] = 0.1
+    events.params.inputs['material']['sigma_p'] = 0.05
+    events.params.inputs['coarse_grids']['noise'] = 20
 
 elif STUDY == "Pessimistic":
-    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
-    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
-    events.read_params.inputs['light']['collection'] = 0.05
-    events.read_params.inputs['material']['sigma_p'] = 0.06
-    events.read_params.inputs['coarse_grids']['noise'] = 40
+    events.params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
+    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
+    events.params.inputs['light']['collection'] = 0.05
+    events.params.inputs['material']['sigma_p'] = 0.06
+    events.params.inputs['coarse_grids']['noise'] = 40
 
-events.read_params.calculate()
+events.params.calculate()
 
 truth = events.truth
 hits  = events.truth_hits

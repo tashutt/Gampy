@@ -101,7 +101,7 @@ ACD_THRESHOLD = 15
 
 def print_results(events,decision_tree_results, pileup_stats):
     TIME = events.truth['time'][-1]
-    AREA = ak.max(events.truth_hits['cell']) * events.read_params.cells['area'] / 2
+    AREA = ak.max(events.truth_hits['cell']) * events.params.cells['area'] / 2
     print(f"Sim duration {TIME:2.2f} s| Detector Area {AREA:2.2f} m^2")
     print(f"{'Stage':<20}{'Count':<8}{'Rate (s^-1 m^-2)':<17}{'Percentage':<10}")
     print("-" * 55)
@@ -216,7 +216,7 @@ def pileup_statistics_function(events,
                                decision_tree_results,
                                ):
 
-    velocity = events.read_params.charge_drift['velocity']
+    velocity = events.params.charge_drift['velocity']
     SIM_TIME = max(events.truth['time'])
     NUM_CELLS = ak.max(events.truth_hits['cell'])
     CELL_H = 0.175
@@ -249,7 +249,7 @@ MIN_NEEDED_HITS = 3
 
 def calculate_detection_rates_measured_hits(events, particle="photon_cos"):
     TIME = events.truth['time'][-1]
-    AREA = ak.max(events.truth_hits['cell']) * events.read_params.cells['area'] / 2
+    AREA = ak.max(events.truth_hits['cell']) * events.params.cells['area'] / 2
 
     # Applying the good mask to filter out the relevant hits
     good_mask = events.measured_hits["_good_mask"]

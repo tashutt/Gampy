@@ -20,39 +20,48 @@ import numpy as np
 
 #  What to do
 
-#   Pick sets of energies, and numbrer of tracks at each energy.
-#   Put in steering file
+#   Pick sets of energies, particles and numbers of tracks - put
+#   in steering file
+#   Particle: 1=e-, 2=g, 3=e+
+
 steering = {}
-# steering['energies'] =  np.array([300, 500, 750, 1000, 1250, 1500, 2000,
-#                                   2500, 3000, 3500, 4000, 5000])
-# steering['num_tracks'] = 300 * np.ones_like(steering['energies'], dtype=int)
 
-steering['energies'] =  np.array([7500, 10000])
-steering['num_tracks'] = 100 * np.ones_like(steering['energies'], dtype=int)
+steering['particles'] =  2
+steering['material'] =  'LAr'
 
-# steering ['energies'] =  np.array([1000000])
-# steering['num_tracks'] = 10 * np.ones(len(steering ['energies']), dtype=int)
+# steering ['energies'] \
+#     =  np.array([100, 200, 500, 1000, 2000, 5000, 10000], dtype=float)
+# steering ['num_tracks'] \
+#     =  np.array([2000, 2000, 2000, 1000, 1000, 500, 500], dtype=int)
+
+steering ['energies'] =  np.array([10000], dtype=float)
+steering ['num_tracks'] \
+    = np.ones_like(steering ['energies'], dtype=int) * int(4000)
+
+# steering ['energies'] = np.array([10000, 20000, 50000, 100000], dtype=float)
+# steering ['num_tracks'] \
+#       = np.ones_like(steering ['energies'], dtype=int) * int(1e4)
 
 #   Use this for big tracks, otherwise omit.
-compression_bin_size = None
+compress = True
+compression_scale = 30e-6
+delete_raw = True
 
 #   Paths
 p={}
 p['executable'] \
     ='/Users/tshutt/Documents/Work/AnalysisCode/Penelope/Code/execute'
-p['output'] = '/Users/tshutt/Documents/Work/Simulations/Penelope/LAr/Tracks'
+p['output'] = '/Users/tshutt/Documents/Work/Simulations/Penelope/Tracks'
 
 #%%  Launch simulation
 
 penelope_tools.simple_penelope_track_maker(
     p,
     steering,
-    random_initial_direction=True,
-    reset_origin=False,
+    initial_direction='random',
     wipe_folders=False,
+    reset_origin=False,
     fresh_seed=True,
     delete_penelope_data=True,
-    compression_bin_size=compression_bin_size
     )
-
 
