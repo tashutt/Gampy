@@ -13,14 +13,15 @@ combine everything (?)
 import sys, os
 sys.path.append('tools')
 
-import params_tools
-import file_tools
-import events_tools
 import subprocess
 import numpy as np
 import awkward as ak
 import time
 import pickle
+
+import sims_tools
+import file_tools
+import events_tools
 
 
 import argparse
@@ -88,46 +89,46 @@ os.makedirs(paths['root'], exist_ok=True)
 os.makedirs(paths['data'], exist_ok=True)
 
 #   Load default geo params
-geo_params = params_tools.GeoParams(detector_geometry='geomega',
+sims_params = sims_tools.Params(detector_geometry='geomega',
                                     cell_geometry='hexagonal')
 
 
 
 if STUDY == "Optimistic":
-    geo_params.inputs['anode_planes']['thickness'] = 0.75e-3
-    geo_params.inputs['cathode_plane']['thickness'] = 0.75e-3
-    geo_params.inputs['vessel']['wall_thickness'] = 2e-3
-    geo_params.inputs['cells']['wall_thickness'] = 0.75e-4
+    sims_params.inputs['anode_planes']['thickness'] = 0.75e-3
+    sims_params.inputs['cathode_plane']['thickness'] = 0.75e-3
+    sims_params.inputs['vessel']['wall_thickness'] = 2e-3
+    sims_params.inputs['cells']['wall_thickness'] = 0.75e-4
 
 elif STUDY == "Neutral":
-    geo_params.inputs['anode_planes']['thickness'] = 1.5e-3
-    geo_params.inputs['cathode_plane']['thickness'] = 1.5e-3
-    geo_params.inputs['vessel']['wall_thickness'] = 3e-3
-    geo_params.inputs['cells']['wall_thickness'] = 2e-4
+    sims_params.inputs['anode_planes']['thickness'] = 1.5e-3
+    sims_params.inputs['cathode_plane']['thickness'] = 1.5e-3
+    sims_params.inputs['vessel']['wall_thickness'] = 3e-3
+    sims_params.inputs['cells']['wall_thickness'] = 2e-4
 
 elif STUDY == "Pessimistic":
-    geo_params.inputs['anode_planes']['thickness'] = 3e-3
-    geo_params.inputs['cathode_plane']['thickness'] = 3e-3
-    geo_params.inputs['vessel']['wall_thickness'] = 4e-3
-    geo_params.inputs['cells']['wall_thickness'] = 5e-4
+    sims_params.inputs['anode_planes']['thickness'] = 3e-3
+    sims_params.inputs['cathode_plane']['thickness'] = 3e-3
+    sims_params.inputs['vessel']['wall_thickness'] = 4e-3
+    sims_params.inputs['cells']['wall_thickness'] = 5e-4
 
 
 # modify any parameter
-geo_params.inputs['vessel']['r_outer'] = args.vessel_r_outer #1.85
-#geo_params.inputs['vessel']['wall_thickness'] = args.vessel_wall_thickness
-#geo_params.inputs['vessel']['lar_min_radial_gap'] = 0.05 #what is this param?
-geo_params.inputs['cells']['height'] = args.cell_h
-#geo_params.inputs['cells']['flat_to_flat'] = 0.175 # what is this parameter?
-#geo_params.inputs['cells']['wall_thickness'] = args.cell_wall_thickness
-geo_params.inputs['acd'] = {'thickness': args.acd_thickness}
-geo_params.inputs['calorimeter']['thickness'] = args.calorimeter_thickness
-geo_params.inputs['shield']['thickness'] = args.shield_thickness
+sims_params.inputs['vessel']['r_outer'] = args.vessel_r_outer #1.85
+#sims_params.inputs['vessel']['wall_thickness'] = args.vessel_wall_thickness
+#sims_params.inputs['vessel']['lar_min_radial_gap'] = 0.05 #what is this param?
+sims_params.inputs['cells']['height'] = args.cell_h
+#sims_params.inputs['cells']['width'] = 0.175 # what is this parameter?
+#sims_params.inputs['cells']['wall_thickness'] = args.cell_wall_thickness
+sims_params.inputs['acd'] = {'thickness': args.acd_thickness}
+sims_params.inputs['calorimeter']['thickness'] = args.calorimeter_thickness
+sims_params.inputs['shield']['thickness'] = args.shield_thickness
 
-geo_params.calculate()
+sims_params.calculate()
 
 geo_file_name = file_tools.write_geo_files(
     paths['root'],
-    geo_params,
+    sims_params,
     values_id=4
     )
 
@@ -340,35 +341,35 @@ events = events_tools.Events(sim_file_path.strip('.sim'),
 
 # Load geometry parameters
 with open(os.path.join(paths['root'], geo_file_name) + '.pickle', 'rb') as f:
-    geo_params = pickle.load(f)
+    sims_params = pickle.load(f)
 
 # Set up and apply detector response
-params = params_tools.ResponseParams(geo_params=geo_params)
+params = params_tools.ResponseParams(sims_params=sims_params)
 
-events.params.inputs['coarse_grids']['signal_fraction'] = 0.9
+events.read_params.inputs['coarse_grids']['signal_fraction'] = 0.9
 
 if STUDY == "Optimistic":
-    events.params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
-    events.params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
-    events.params.inputs['light']['collection'] = 0.3
-    events.params.inputs['material']['sigma_p'] = 0.04
-    events.params.inputs['coarse_grids']['noise'] = 10
+    events.read_params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
+    events.read_params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
+    events.read_params.inputs['light']['collection'] = 0.3
+    events.read_params.inputs['material']['sigma_p'] = 0.04
+    events.read_params.inputs['coarse_grids']['noise'] = 10
 
 elif STUDY == "Neutral":
-    events.params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
-    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
-    events.params.inputs['light']['collection'] = 0.1
-    events.params.inputs['material']['sigma_p'] = 0.05
-    events.params.inputs['coarse_grids']['noise'] = 20
+    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
+    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
+    events.read_params.inputs['light']['collection'] = 0.1
+    events.read_params.inputs['material']['sigma_p'] = 0.05
+    events.read_params.inputs['coarse_grids']['noise'] = 20
 
 elif STUDY == "Pessimistic":
-    events.params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
-    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
-    events.params.inputs['light']['collection'] = 0.05
-    events.params.inputs['material']['sigma_p'] = 0.06
-    events.params.inputs['coarse_grids']['noise'] = 40
+    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
+    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
+    events.read_params.inputs['light']['collection'] = 0.05
+    events.read_params.inputs['material']['sigma_p'] = 0.06
+    events.read_params.inputs['coarse_grids']['noise'] = 40
 
-events.params.calculate()
+events.read_params.calculate()
 
 truth = events.truth
 hits  = events.truth_hits

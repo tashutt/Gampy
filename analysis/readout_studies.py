@@ -3,7 +3,6 @@ TODO: make these all dictionaries instead of classes
 
 """
 
-
 class PixelPitchDriftDistance:
     """
       Separately scan:
@@ -22,34 +21,36 @@ class PixelPitchDriftDistance:
     """
     def __init__(self, null=False):
 
-        import params_tools
+        import numpy as np
+
+        import readout_tools
 
         self.kit = {}
 
         #   The two sets of values - used unless null
-        depths = [0.002, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, \
-                            0.075, 0.1, 0.2, 0.3]
-        pitches = [0.2e-3, 0.3e-3, 0.4e-3, 0.5e-3, 0.75e-3]
+        depths = np.array([0.002, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, \
+                            0.075, 0.1, 0.2])
+        pitches = np.array([0.4e-3, 0.5e-3, 0.6e-3])
+        # pitches = np.array([0.2e-3, 0.3e-3, 0.4e-3, 0.5e-3, 0.75e-3])
 
         #   Assign values
         if not null:
             self.kit['pitches'] = pitches
             self.kit['depths'] = depths
-            self.kit['select_depth_indices'] = [2, 6, 10]
-            self.kit['select_pitch_indices'] = [1, 3]
+            self.kit['select_depth_indices'] = [2, 6, 9]
+            self.kit['select_pitch_indices'] = [0, 1, 2]
             self.kit['default_depth_index'] = 6
             self.kit['default_pitch_index'] = 3
         else:
-            params = params_tools.Params()
+            read_params = readout_tools.Params()
             self.kit['depths'] = [0.05]
-            self.kit['pitches'] = [params.pixels['pitch']]
+            self.kit['pitches'] = [read_params.pixels['pitch']]
             self.kit['select_depth_indices'] = [0]
             self.kit['select_pitch_indices'] = [0]
             self.kit['default_depth_index'] = 0
             self.kit['default_pitch_index'] = 0
 
         #  Indices and such
-        self.kit = {}
         self.kit['drift_case_index'] = []
         self.kit['pitch_case_index'] = []
         self.kit['num_pitches'] = len(pitches)
@@ -103,7 +104,8 @@ class PixelPitchDriftDistance:
                 #   Save params fields and sub-fields, and values
                 self.fields.append(['pixels'])
                 self.sub_fields.append(['pitch'])
-                self.values.append([depths[nd], pitches[npp]])
+                self.values.append([pitches[npp]])
+                # self.values.append([depths[nd], pitches[npp]])
 
 class GAMPixDNoiseDepth():
     """
@@ -124,13 +126,13 @@ class GAMPixDNoiseDepth():
     def __init__(self, null=False):
 
         import numpy as np
-        import params_tools
+        import readout_tools
 
         self.kit = {}
 
         #   The two sets of values - used unless null
         depths = np.arange(0.5, 7, 0.5)
-        noises = [50, 1000]
+        noises = np.array([50, 1000])
 
         #   Assign values
         if not null:
@@ -138,9 +140,9 @@ class GAMPixDNoiseDepth():
             self.kit['noises'] = noises
             self.kit['select_depth_indices'] = [3, 11]
         else:
-            params = params_tools.Params()
+            read_params = readout_tools.Params()
             self.kit['depths'] = [3]
-            self.kit['noises'] = [params.pixels['noise']]
+            self.kit['noises'] = [read_params.pixels['noise']]
             self.kit['select_depth_index'] = 0
 
         #  Indices and such

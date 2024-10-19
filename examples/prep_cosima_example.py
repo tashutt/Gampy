@@ -8,9 +8,10 @@ Example of creating a Geomega geometry .source file
 @author: tshutt
 """
 
-import params_tools
-import file_tools
 import os
+
+import sims_tools
+import file_tools
 
 #   Paths
 paths = {}
@@ -20,22 +21,22 @@ paths['data'] = os.path.join(paths['root'], 'data')
 #%% Generate geometry file with default inputs, write to root path
 
 #   Load default geo params
-geo_params = params_tools.GeoParams(detector_geometry='geomega',
+sims_params = sims_tools.Params(detector_geometry='geomega',
                                     cell_geometry='hexagonal')
 
 #   Write file
-geo_file_name = file_tools.write_geo_files(paths['root'], geo_params)
+geo_file_name = file_tools.write_geo_files(paths['root'], sims_params)
 
 #%%  Generate file with modified parameter value
 
 #   Change the overall radius
-geo_params.inputs['vessel']['r_outer'] = 0.6
+sims_params.inputs['vessel']['r_outer'] = 0.6
 
 #   Write again, but add values id to distinguis from default
 #   (default is values_id=0)
 mod_geo_file_name = file_tools.write_geo_files(
     paths['root'],
-    geo_params,
+    sims_params,
     values_id=3
     )
 

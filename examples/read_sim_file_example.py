@@ -34,6 +34,7 @@ inc_id_tag = '.inc1.id1'
 
 #%% Get events
 
+# sim_file_name = 'AllSky550km_GeoT01v03.inc2.id1'
 sim_file_name = 'AllSky550km_GeoT01v03.inc2.id1'
 # sim_file_name = file_tools.get_sim_file_name(
 #     beam,
