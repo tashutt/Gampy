@@ -1,71 +1,78 @@
 """
 Created on Mon Aug  3 19:22:53 2020
 
-Collection of tools for the class Track which describes an electron track,
-and related functions.
+Tracks object and associated routines.
 
-TODO: Rationalize what is here, and what is in penelope_tools
-TODO: Use .h5py for files, and save in only one format
+TODO: Move charge_drift_tools into readout_tools
 
 @author: tshutt
 """
 
-class Track:
-    """ Electron tracks, including raw_track, drifted_track and
-    pixels.  Also display options """
+class Tracks():
+    """
+    Tracks object for charge tracks for a single event, includes readout
+    and display, with associated routines.
+    """
 
-    def __init__(self, full_filename, charge_readout='GAMPixG'):
+    def __init__(self, track_file_name, charge_readout_name='GAMPixG',
+                 readout_inputs_file_name='default'):
         """
         Start by reading raw track file, and define parameters
-        with a specified charge readout and simple detector geometry.
-        """
+        with a specified charge readout in a simple cell.
 
-        import params_tools
+        readout_inputs_file_name help: readout_tools
+        """
+        import sims_tools
+        import readout_tools
 
         #   Read track
-        raw_track, truth, meta = load_track(full_filename)
+        raw, compressed, truth, meta  = load_track(track_file_name)
 
         #   Assign everything in track
-        self.raw_track = raw_track
+        if raw:
+            self.raw = raw
+        if compressed:
+            self.compressed = compressed
         self.truth = truth
         self.meta = meta
 
-        #   Slightly convoluted method of establishing params.  First
-        #   create readout params with null geometry to find coarse
-        #   readout pitch, which is used to set bounding box to
-        #   generate a simple detector that just spans the event, and
-        #   which is finally used to create params
-        params = params_tools.ResponseParams(charge_readout)
-        buffer = params.coarse_pitch + 0.05
-        bounding_box = find_bounding_box(self.raw_track['r'], buffer=buffer)
-        #   Now generate simple geometry based on bounding_box
-        geo_params = params_tools.GeoParams(bounding_box=bounding_box)
-        #   And finally the readout params
-        self.params = params_tools.ResponseParams(
-            charge_readout,
-            geo_params,
+        #   Get cell bounds
+        cell_bounds = get_cell_bounds(self, charge_readout_name,
+                                      readout_inputs_file_name)
+
+        #   Load simple cell geometry parameters
+        self.sims_params = sims_tools.Params(
+            inputs_source='simple_cell',
+            cell_bounds=cell_bounds,
             )
 
-    def reset_params(self, charge_readout='GAMPixG'):
+        #   Load readout parameters
+        self.read_params = readout_tools.Params(
+            charge_readout_name=charge_readout_name,
+            cells=self.sims_params.cells,
+            )
+
+    def reset_params(self, charge_readout_name='GAMPixG',
+                     readout_inputs_file_name='default'):
         """ reset params, which allows change of charge readout,
-        removes any read out samples """
+        removes any samples that have already been generated """
+        import sims_tools
+        import readout_tools
 
-        import params_tools
+        #   Get cell bounds
+        cell_bounds = get_cell_bounds(self, charge_readout_name,
+                                      readout_inputs_file_name)
 
-        #   Slightly convoluted method of establishing params.  First
-        #   create readout params with null geometry to find coarse
-        #   readout pitch, which is used to set bounding box to
-        #   generate a simple detector that just spans the event, and
-        #   which is finally used to create params
-        params = params_tools.ResponseParams(charge_readout)
-        buffer = params.coarse_pitch + 0.05
-        bounding_box = find_bounding_box(self.raw_track['r'], buffer=buffer)
-        #   Now generate simple geometry based on bounding_box
-        geo_params = params_tools.GeoParams(bounding_box=bounding_box)
-        #   And finally the readout params
-        self.params = params_tools.ResponseParams(
-            charge_readout,
-            geo_params,
+        #   Load simple cell geometry parameters
+        self.sims_params = sims_tools.Params(
+            inputs_source='simple_cell',
+            cell_bounds=cell_bounds,
+            )
+
+        #   Load readout parameters
+        self.read_params = readout_tools.Params(
+            charge_readout_name=charge_readout_name,
+            cells=self.sims_params.cells,
             )
 
         #   Strip out any previous samples, and drifted track
@@ -75,50 +82,47 @@ class Track:
                 stale_keys.append(key)
         for key in stale_keys:
             delattr(self, key)
-        if hasattr(self, 'drifted_track'):
-            delattr(self, 'drifted_track')
+        if hasattr(self, 'drifted'):
+            delattr(self, 'drifted')
 
-    def compress(self, compression_bin_size=200e-6):
-        """  Compresses raw_track using iterative 3d binning to scale
-        set by compression_bin_size """
+    def compress(self, scale=200e-6, compressed=False):
+        """  Compresses raw to compressed_track, by hierarchical
+        3d binning, to a bin size set by scale """
 
-        #   Do not compress if already more compressed
-        if ('compression_bin_size' in self.meta) \
-            and (self.meta['compression_bin_size']>=compression_bin_size):
-                print('Warning: requested compression does not exceed'
-                      + ' existing, no further compression applied.')
-
+        #   Use compressed data if available and requested
+        if (compressed and hasattr(self, 'compressed')) \
+            or (not hasattr(self,'raw')):
+            num_e  = self.compressed['num_e']
+            r  = self.compressed['r']
         else:
+            num_e  = self.raw['num_e']
+            r  = self.raw['r']
 
-            #   Compress
-            r_out, num_e_out = compress_track(
-                self.raw_track['r'],
-                self.raw_track['num_e'],
-                compression_bin_size=compression_bin_size
-                )
-            self.raw_track['r'] = r_out
-            self.raw_track['num_e'] = num_e_out
+        r, num_e, bin_size = compress_track(
+            r,
+            num_e,
+            scale=scale
+            )
 
-            #   Several "meta" things are no longer valid
-            self.raw_track.pop('particle', None)
-            self.raw_track.pop('generation', None)
-            self.raw_track.pop('parent', None)
-            self.raw_track.pop('interaction', None)
-            self.raw_track.pop('birth_step', None)
+        self.compressed = {}
+        self.compressed['bin_size'] = bin_size
+        self.compressed['r'] = r
+        self.compressed['num_e'] = num_e
 
-            #   Save compression size in meta data
-            self.meta['compression_bin_size'] = compression_bin_size
-
-    def apply_drift(self, depth=0):
+    def apply_drift(self, depth=0, decompress=True, compressed=True):
         """
         Drifts track, finding charge loss to electronegative capture, and
         adds diffusion
 
         depth: The z value of each entry in the track is assumed negative,
             and the drift distance for each is (z - depth).
+        decompress - if true, expands clumpled electrons (expanding r, num_e)
+            to properly treat diffusion and threshold.
+        compressed - if true, and have compressed track, apply drift
+            to this rather than raw track
 
-        creates track.drifted_track, with fields
-            r - same as raw_track, but note can have fewer entries due to
+        creates track.drifted, with fields
+            r - same as raw, but note can have fewer entries due to
                 charge loss
             num_e - number of charges, after charge loss
             depth - record of input
@@ -129,98 +133,105 @@ class Track:
 
         import charge_drift_tools
 
-        #   Recalculate params
-        self.params.calculate()
-
+        #   Recalculate params, and diffusion constants
+        self.read_params.calculate()
         drift_properties = charge_drift_tools.properties(
-            self.params.charge_drift['drift_field'],
-            self.params.material
+            self.read_params.charge_drift['drift_field'],
+            self.read_params.material
             )
 
-        #   Decompress track so num_e is smaller than readout noise
-
-        #   Find noise for the fine grained readout
-        if (self.params.charge_readout=='GAMPixG'
-            or self.params.charge_readout=='GAMPixD'
-            or self.params.charge_readout=='LArPix'):
-            noise = self.params.pixels['noise']
-        elif self.params.charge_readout=='AnodeGridD':
-            noise = self.params.anode_grid['noise']
-
-        #   This is maximum size of deompressed num_e
-        max_num_e = noise / 2.0
+        #   Use compressed data if available and requested
+        if compressed and hasattr(self, 'compressed'):
+            num_e  = self.compressed['num_e']
+            r  = self.compressed['r']
+        else:
+            num_e  = self.raw['num_e']
+            r  = self.raw['r']
 
         #   De-compress track so num_e is smaller than noise by some factor
-        in_args = [self.raw_track['r']]
-        if 'track_id' in self.raw_track:
-            in_args.append(self.raw_track['track_id'])
-            in_args.append(self.raw_track['particle_id'])
+        if decompress:
 
-        num_e, out_data = decompress_track(
-            max_num_e,
-            self.raw_track['num_e'],
-            in_args,
-            )
+            #   Find noise for the fine grained readout
+            if (self.read_params.charge_readout_name=='GAMPixG'
+                or self.read_params.charge_readout_name=='GAMPixD'
+                or self.read_params.charge_readout_name=='LArPix'):
+                noise = self.read_params.pixels['noise']
+            elif self.read_params.charge_readout_name=='AnodeGridD':
+                noise = self.read_params.anode_grid['noise']
 
-        #   r in out_data
-        r = out_data[0]
+            #   This is maximum size of decompressed num_e
+            max_num_e = noise / 2.0
 
-        #   Drift distance.  If depth supplied, subtract it.  Otherwise
-        #   it is the negative value of z (z=0 is the anode plane)
-        drift_distance = - (r[2, :] - depth)
+            num_e, r = decompress_track(
+                max_num_e,
+                num_e,
+                r,
+                )
 
-        if np.any(drift_distance<0):
-            sys.exit('Negative drift distances in '
-                     + 'electron_track_tools.apply_drift')
+        #   Drift distance to anode, a positive quanity.  If depth supplied,
+        #   add it.
+        drift_distance = self.sims_params.cells['z_anode'] - r[2, :] + depth
 
-        #    Survival fraction to trapping
+        #   Mask for valid drift distance
+        drift_mask = drift_distance>0
+        self.truth['num_e_inbounds'] = num_e[drift_mask].sum()
+
+        #   If none with positve drift distance, barf out.
+        if drift_mask.sum()==0:
+            sys.exit('All electrons have negative drift distances')
+
+        #    Survival fraction to trapping.
         survive = np.exp(-drift_distance
-                      / self.params.charge_drift['drift_length'])
+                      / self.read_params.charge_drift['drift_length'])
+        survive[~drift_mask] = 0
         num_e = np.random.binomial(num_e, survive)
         survival_mask = num_e>0
 
+        #   Combine drift and survival masks
+        mask = drift_mask & survival_mask
+
         #   Find dispersion in both directions
         sigma = charge_drift_tools.get_sigma(
-            drift_distance[survival_mask],
+            drift_distance[mask],
             drift_properties
             )
 
         #   Initialize drifted track, assign surviving charge and ids
-        drifted_track = {}
-        drifted_track['num_e'] = num_e[survival_mask]
-        if 'track_id' in self.raw_track:
-            drifted_track['track_id'] = out_data[1][survival_mask]
-            drifted_track['particle_id'] = out_data[2][survival_mask]
+        drifted = {}
+        drifted['num_e'] = num_e[mask]
 
         #   Add diffusion to r
-        new_num = survival_mask.sum()
-        drifted_track['r'] = np.zeros((3, new_num), dtype=float)
-        drifted_track['r'][0, :] = \
-            r[0, survival_mask] \
+        new_num = mask.sum()
+        drifted['r'] = np.zeros((3, new_num), dtype=float)
+        drifted['r'][0, :] = \
+            r[0, mask] \
             + np.random.randn(new_num) \
             * sigma['transverse']
-        drifted_track['r'][1, :] = \
-            r[1, survival_mask] \
+        drifted['r'][1, :] = \
+            r[1, mask] \
             + np.random.randn(new_num) \
             * sigma['transverse']
-        drifted_track['r'][2, :] = \
-            r[2, survival_mask] \
+        drifted['r'][2, :] = \
+            r[2, mask] \
             + np.random.randn(new_num) \
             * sigma['longitudinal']
 
         #   Keep depth
-        drifted_track['depth'] = depth
+        drifted['depth'] = depth
 
         #   Assign to track
-        self.drifted_track = drifted_track
+        self.drifted = drifted
 
-    def readout_charge(self, depth=0):
+    def readout_charge(self, depth=0, stats_output=False, compressed=True):
         """
         Updates params, drifts track, and reads track out with
             configured charge readout
 
-        depth: The z value of each entry in the track is assumed negative,
-            and the drift distance for each is (z - depth).
+        depth: An added distance to that between each track element and
+            the aonde, which is defined per cell.
+        stats_output - compute additional statistics
+        compressed - if true, and have compressed track, apply readout
+            to this rather than raw track
 
         Output is added to track, and depends on charge readout.  See
             help in charge_readout_tools for decoumentation
@@ -235,236 +246,252 @@ class Track:
         import charge_readout_tools
 
         #   Recalculate params
-        self.params.calculate()
+        self.read_params.calculate()
 
         #   Apply drift
         if depth<0:
             sys.exit('ERROR: depth must be >= 0')
-        self.apply_drift(depth=depth)
+        self.apply_drift(depth=depth, compressed=compressed)
 
         #   GAMPix for GammaTPC
-        if self.params.charge_readout=='GAMPixG':
+        if self.read_params.charge_readout_name=='GAMPixG':
 
             #   Readout coarse grids
             self.coarse_grids_samples \
                 = charge_readout_tools.readout_coarse_grids(
-                    self.drifted_track['r'],
-                    self.drifted_track['num_e'],
-                    self.params.coarse_grids)
+                    self.drifted['r'],
+                    self.drifted['num_e'],
+                    self.read_params.coarse_grids,
+                    stats_output=stats_output,
+                    )
 
             #   Readout pixels - as dual scale pixels
             self.pixel_samples \
                 = charge_readout_tools.readout_dual_scale_pixels(
-                    self.drifted_track['r'],
-                    self.drifted_track['num_e'],
-                    self.params.chip_array,
-                    self.params.pixels,
+                    self.drifted['r'],
+                    self.drifted['num_e'],
+                    self.read_params.chip_array,
+                    self.read_params.pixels,
+                    stats_output=stats_output,
                     )
 
         #   GAMPix for DUNE
-        elif self.params.charge_readout=='GAMPixD':
+        elif self.read_params.charge_readout_name=='GAMPixD':
 
             #   Readout coarse tiles - as pixels
             self.coarse_tiles_samples \
                 = charge_readout_tools.readout_pixels(
-                    self.drifted_track['r'],
-                    self.drifted_track['num_e'],
-                    self.params.coarse_tiles,
+                    self.drifted['r'],
+                    self.drifted['num_e'],
+                    self.read_params.coarse_tiles,
+                    stats_output=stats_output,
                     )
 
             #   Readout pixels - as dual scale pixels
             self.pixel_samples \
                 = charge_readout_tools.readout_dual_scale_pixels(
-                    self.drifted_track['r'],
-                    self.drifted_track['num_e'],
-                    self.params.coarse_tiles,
-                    self.params.pixels,
+                    self.drifted['r'],
+                    self.drifted['num_e'],
+                    self.read_params.coarse_tiles,
+                    self.read_params.pixels,
+                    stats_output=stats_output,
                     )
 
         #   LArPix
-        elif self.params.charge_readout=='LArPix':
+        elif self.read_params.charge_readout_name=='LArPix':
 
             #   Readout pixels
             self.pixel_samples \
-                = charge_readout_tools.readout_dual_scale_pixels(
-                    self.drifted_track['r'],
-                    self.drifted_track['num_e'],
-                    self.params.coarse_tiles,
-                    self.params.pixels,
+                = charge_readout_tools.readout_pixels(
+                    self.drifted['r'],
+                    self.drifted['num_e'],
+                    self.read_params.pixels,
+                    stats_output=stats_output,
                     )
 
         #   Anode grid
-        elif self.params.charge_readout=='AnodeGridD':
+        elif self.read_params.charge_readout_name=='AnodeGridD':
 
             self.anode_grid_samples \
                 = charge_readout_tools.readout_anode_grid(
-                self.drifted_track['r'],
-                self.drifted_track['num_e'],
-                self.params.anode_grid,
-                )
+                    self.drifted['r'],
+                    self.drifted['num_e'],
+                    self.read_params.anode_grid,
+                    stats_output=stats_output,
+                    )
 
         else:
-            sys.exit('ERROR in electron_track_tools: ' +
+            sys.exit('ERROR in tracks_tools: ' +
                      'charge readout architecture not recognized')
 
-    def display(
-            self,
-            raw_track=True,
-            drifted_track=False,
-            pixels=True,
-            resolution=1e-5,
-            max_num_e=None,
-            max_pixel_samples=None,
-            plot_lims=None,
-            show_initial_vector=True,
-            show_origin=True,
-            track_center_at_origin=False,
-            units='mm',
-            view_angles=None,
-            no_axes=False,
-            show_title=True,
-            ):
+    def display(self, **kwargs):
         """
-        Displays track - see help in display_tools.
+        Displays track - see help in display_tools for arguments
+
+        returns: fig, ax, plot_lims
         """
         import display_tools
 
-        fig, ax, plot_lims = display_tools.display(
-                self,
-                raw_track=raw_track,
-                drifted_track=drifted_track,
-                pixels=pixels,
-                resolution=resolution,
-                max_num_e=max_num_e,
-                max_pixel_samples=max_pixel_samples,
-                plot_lims=plot_lims,
-                show_initial_vector=show_initial_vector,
-                show_origin=show_origin,
-                track_center_at_origin=track_center_at_origin,
-                units=units,
-                view_angles=view_angles,
-                no_axes=no_axes,
-                show_title=show_title,
-                )
+        fig, ax, plot_lims = display_tools.display_track(self, **kwargs)
 
         return fig, ax, plot_lims
 
-def save_track(full_file_name, track):
+def save_penelope_track(full_file_name, track):
     """
-    Saves track to npz and pickle files with full_file_name
-
-    Track could be penelope file, or perhaps an already parsed track which
-    has been compressed, losing attributes.  This is all a bit ugly.
-    If track is dictionary it is treated as a penelope_track, otherwise
-    treated as normal track object.
-    TODO: save/read "raw" penelope tracks in normal format, with raw_track
-    TODO: make method of track?
+    Saves raw tracks from penelope to npz and pickle files
+    with full_file_name.
     """
 
     import pickle
     import os
     import numpy as np
 
-    #   A "Penelope" track is a dictionary.  Save
-    if isinstance(track, dict):
-        r = track['r']
-        num_e = track['num_e']
-        if 'generation' in track:
-            particle = track['particle']
-            generation = track['generation']
-            parent = track['parent']
-            interaction = track['interaction']
-            birth_step = track['birth_step']
-        truth = track['truth']
-        meta = track['meta']
+    #   r, num_e and ther stuff saved as npz file
+    np.savez_compressed(
+        os.path.join(full_file_name + '.npz'),
+        r = track['r'],
+        num_e = track['num_e'],
+        particle = track['particle'],
+        generation = track['generation'],
+        parent = track['parent'],
+        interaction = track['interaction'],
+        birth_step = track['birth_step'],
+        )
 
-    #   Otherwise assume normal track
-    else:
-        r = track.raw_track['r']
-        num_e = track.raw_track['num_e']
-        if 'generation' in track.raw_track:
-            particle = track.raw_track['particle']
-            generation = track.raw_track['generation']
-            parent = track.raw_track['parent']
-            interaction = track.raw_track['interaction']
-            birth_step = track.raw_track['birth_step']
-        truth = track.truth
-        meta = track.meta
+    #   truth and meta data saved as pickle
+    track_info = {}
+    track_info['truth'] = track['truth']
+    track_info['meta'] = track['meta']
+    with open(os.path.join(full_file_name + '.pickle'), 'wb') as f:
+        pickle.dump(track_info, f)
 
-    #   r, ne and generation saved as npz file
-    if 'generation' in locals():
+def save_track(full_file_name, track, write_raw=True, write_compressed=True):
+    """
+    Saves raw and compressed tracks to npz and pickle files
+    with full_file_name.
+    """
+
+    import pickle
+    import os
+    import numpy as np
+
+    #   Save raw, if present
+    if hasattr(track, 'raw') & write_raw:
         np.savez_compressed(
             os.path.join(full_file_name + '.npz'),
-            r = r,
-            num_e = num_e,
-            particle = particle,
-            generation = generation,
-            parent = parent,
-            interaction = interaction,
-            birth_step = birth_step,
+            r = track.raw['r'],
+            num_e = track.raw['num_e'],
+            particle = track.raw['particle'],
+            generation = track.raw['generation'],
+            parent = track.raw['parent'],
+            interaction = track.raw['interaction'],
+            birth_step = track.raw['birth_step'],
             )
-    else:
+
+    #   Save compressed track, if present
+    if hasattr(track, 'compressed')  & write_compressed:
         np.savez_compressed(
-            os.path.join(full_file_name + '.npz'),
-            r = r,
-            num_e = num_e,
+            os.path.join(full_file_name + '.c.npz'),
+            r = track.compressed['r'],
+            num_e = track.compressed['num_e'],
+            bin_size = track.compressed['bin_size'],
             )
 
     #   truth and meta data saved as pickle
     track_info = {}
-    track_info['truth'] = truth
-    #   Backwards compatability
-    #   TODO: remove
-    if not 'file_name' in meta:
-        meta['file_name'] = full_file_name.split(os.path.sep)[-1]
-    track_info['meta'] = meta
+    track_info['truth'] = track.truth
+    track_info['meta'] = track.meta
     with open(os.path.join(full_file_name + '.pickle'), 'wb') as f:
         pickle.dump(track_info, f)
 
-def load_track(full_file_name):
+def load_track(full_file_name, read_raw=True, read_compressed=True):
     """
     Loads .npz + .pickel track in full_file_name
 
-    TODO: save/read "raw" penelope tracks in normal format, with raw_track
-    11/5/21 TS
+    returns raw, compressed, truth and metha
+
+    Returns None for raw and compressed data if these are not read, for
+    any reason.
     """
 
-    import pickle, os
+    import os
+    import sys
+    import pickle
     import numpy as np
 
-    #   load track guts from .npz: r, num_e, and possibly generation
-    track_guts = np.load(os.path.join(full_file_name + '.npz'))
+    #   Read raw track, if it exists
+    raw = None
+    if read_raw:
+
+        if os.path.isfile(os.path.join(full_file_name + '.npz')):
+
+            #   Load
+            guts = np.load(os.path.join(full_file_name + '.npz'))
+
+            #   Construct track, dealing with compressed tracks
+            raw = {}
+            raw['r'] = guts['r']
+            raw['num_e'] = guts['num_e']
+            raw['generation'] = guts['generation']
+            raw['particle'] = guts['particle']
+            raw['parent'] = guts['parent']
+            raw['interaction'] = guts['interaction']
+            raw['birth_step'] = guts['birth_step']
+
+    #   Read compressed track, if it exists
+    compressed = None
+    if read_compressed:
+
+        if os.path.isfile(os.path.join(full_file_name + '.c.npz')):
+
+            #   Load
+            guts = np.load(os.path.join(full_file_name + '.c.npz'))
+
+            #   Construct track, dealing with compressed tracks
+            compressed = {}
+            compressed['r'] = guts['r']
+            compressed['num_e'] = guts['num_e']
+            compressed['bin_size'] = guts['bin_size']
+
+    #   Barf out if nothing found
+    if (not raw) & (not compressed):
+        sys.exit('Error in load_track: nothing found')
 
     #   load track_info from .pickle
     with open(os.path.join(full_file_name + '.pickle'), 'rb') as f:
         track_info = pickle.load(f)
-
-    raw_track = {}
-    raw_track['r'] = track_guts['r']
-    raw_track['num_e'] = track_guts['num_e']
-    if 'generation' in track_guts:
-        raw_track['generation'] = track_guts['generation']
-    if 'particle' in track_guts:
-        raw_track['particle'] = track_guts['particle']
-        raw_track['parent'] = track_guts['parent']
-        raw_track['interaction'] = track_guts['interaction']
-        raw_track['birth_step'] = track_guts['birth_step']
-
     truth = track_info['truth']
-    #   Backwards compatability
-    #   TODO: remove this
-    if 'meta_data' in track_info:
-        meta = track_info['meta_data']
+    meta = track_info['meta']
+
+    return raw, compressed, truth, meta
+
+def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name,
+                    compressed=True):
+    """ Finds cell_bounds that contain raw track, buffering as
+    needed to accomodate coarse sensors """
+
+    import readout_tools
+
+    #   Use compressed data if available and requested
+    if compressed and hasattr(track, 'compressed'):
+        r  = track.compressed['r']
     else:
-        meta = track_info['meta']
-    #   Backwards compatability
-    if not 'file_name' in meta:
-        meta['file_name'] \
-            = full_file_name.split(os.path.sep)[-1]
+        r  = track.raw['r']
 
-    return raw_track, truth, meta
+    #   Find bounding dimensions that contains track
+    cell_bounds = find_bounding_box(r)
 
-def find_bounding_box(r, buffer=0.01):
+    #   Buffer size to allow minimal coarse sensors
+    coarse_pitch = readout_tools.Params(
+        inputs_file_name = readout_inputs_file_name,
+        charge_readout_name=charge_readout_name,
+        ).coarse_pitch
+    cell_bounds[:, 0] -= coarse_pitch
+    cell_bounds[:, 1] += coarse_pitch
+
+    return cell_bounds
+
+def find_bounding_box(r, buffer=0.0):
     """
     Finds box that spans r, with an added buffer
     """
@@ -482,36 +509,40 @@ def find_bounding_box(r, buffer=0.01):
 
     return bounding_box
 
-def find_bounding_cube(r, buffer=0.01):
+def find_bounding_cube(r, buffer=0.0):
     """
     Finds cube that spans r, with an added buffer.
     """
 
-    #   Start with bounding box.
-    bounding_cube = find_bounding_box(r, buffer=buffer)
+    import numpy as np
 
-    #   Add buffer
-    bounding_cube[:, 0] -= buffer
-    bounding_cube[:, 1] += buffer
+    #   Start with bounding box.
+    bounding_box = find_bounding_box(r, buffer=buffer)
+
+    #   Now make all spans equal to largest
+    bounding_cube = bounding_box.mean(axis=1)[:, None] \
+        +  0.5 * np.diff(bounding_box).max() * np.array([-1., 1.])
 
     return bounding_cube
 
-def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
+def compress_track(r, num_e, scale=200e-6, voxel_cube=None,
                    first=True):
     """
-    Recursive cubic binning track compression.
+    Recursive cubic binning track compression, to bin size set, roughly
+        by  scale
 
     Input:
         r - locations of charge, dimension [3, number_of_entries]
         num_e - charge at each location
-        compression_bin_size - size of bin withing which r is
+        scale - size of bin withing which r is
             averaged and num_e is summed
         voxel_cube - used internally
         first - used internally
 
     Returned:
-        r_out - charge-averaged value of r within compression_bin_size cubes
-        num_e - summed charge in compression_bin_size cubes
+        bin_size - the size of bins
+        r_out - charge-averaged value of r within bins_size cubes
+        num_e - summed charge in scale cubes
 
     4/9/23 - TS
     """
@@ -536,8 +567,8 @@ def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
     #   Check if final bin size is reached
     final_step = False
     this_bin_size = np.diff(voxel_cube).max() / max_num_bins
-    if this_bin_size < compression_bin_size:
-        this_bin_size = compression_bin_size
+    if this_bin_size < scale:
+        this_bin_size = scale
         final_step = True
 
     #   Bin edges based on bin size and bounding box
@@ -575,15 +606,15 @@ def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
     #   bin, and charge at that point
     if final_step:
 
-        r_q_mean, _, _ = stats.binned_statistic_dd(
+        r_q_mean = stats.binned_statistic_dd(
             r.transpose(),
             [r[0, :] * num_e, r[1, :] * num_e, r[2, :] * num_e],
             statistic='mean',
             bins=bin_edges,
-            )
+            )[0]
 
         r_out = np.zeros((3, num_voxels), dtype=float)
-        num_e_out = np.zeros(num_voxels, dtype=float)
+        num_e_out = np.zeros(num_voxels, dtype=int)
         for voxel, n in zip(occupied_voxels, range(num_voxels)):
 
             in_voxel = np.all(voxel[:, None]==indices-1, axis=0)
@@ -597,7 +628,7 @@ def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
             r_out[:, n] = r_q_mean[:, voxel[0], voxel[1], voxel[2]] \
                 / num_e_out[n] * in_voxel.sum()
 
-        return r_out, num_e_out
+        return r_out, num_e_out, this_bin_size
 
     #   If not final step, then recursively proceed over voxels
     for voxel, nv in zip(occupied_voxels, range(num_voxels)):
@@ -611,13 +642,13 @@ def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
             )
 
         #   Recursively bin
-        r_voxel, num_e_voxel \
+        r_voxel, num_e_voxel, this_bin_size \
             = compress_track(
                 r[:, in_voxel_mask],
                 num_e[in_voxel_mask],
                 voxel_cube = voxel_cube,
                 first = False,
-                compression_bin_size=compression_bin_size,
+                scale=scale,
                 )
 
         #   Append output, with different first step
@@ -628,9 +659,9 @@ def compress_track(r, num_e, compression_bin_size=200e-6, voxel_cube=None,
             r_out = np.append(r_out, r_voxel, axis=1)
             num_e_out = np.append(num_e_out, num_e_voxel)
 
-    return r_out, num_e_out
+    return r_out, num_e_out, this_bin_size
 
-def decompress_track(max_electrons_per_bin, num_electrons, *args):
+def decompress_track(max_electrons_per_bin, num_e, r):
     """
     Take in sample_data (shape k,n with n the number of samples
     and k the number of datatypes, e.g. r, trackID, pID) and n_electrons
@@ -638,68 +669,50 @@ def decompress_track(max_electrons_per_bin, num_electrons, *args):
     subsample has less than max_electrons_per_bin electrons
 
     7/23   H. Purcell
+    10/24 TS - simplify to work only with num_e and r
     """
 
     import numpy as np
     import math
 
-    args = [np.transpose(arg) for arg in args]
-
     #check all input samples have at least one electron
-    num_electrons = np.array(num_electrons)
-    assert np.all(num_electrons > 0), \
+    num_e = np.array(num_e)
+    assert np.all(num_e > 0), \
         "ValueError: all input samples must have at least one electron"
 
     #  find the number of subsamples needed for each sample, and in total
     num_bins = np.array(
-        [math.ceil(n_elec/max_electrons_per_bin) for n_elec in num_electrons]
+        [math.ceil(n_elec/max_electrons_per_bin) for n_elec in num_e]
         )
     num_bins_total = np.sum(num_bins)
 
     #  compute the number of electrons per subsample in each sample,
     #  and the remainder
-    num_electrons_per_bin       = np.array(num_electrons) // num_bins
-    remainder_electrons_per_bin = np.array(num_electrons) %  num_bins
-
-    #   outputs
-    output_arrays = []
+    num_e_per_bin       = np.array(num_e) // num_bins
+    remainder_electrons_per_bin = num_e % num_bins
 
     #  output electron array
-    output_num_electrons = np.zeros(num_bins_total, dtype = int)
+    num_e_out = np.zeros(num_bins_total, dtype = int)
+    r_out = np.zeros((3, num_bins_total), dtype = float)
 
-    # Loop over each input array
-    for arg in args:
-        arg = np.array(arg)
-        # Initialize output array for this input array
-        output_array = np.zeros(
-            (num_bins_total,) + arg.shape[1:],
-            dtype=arg.dtype
-            )
+    #loop through samples
+    for n in range(num_bins.size):
 
-        #loop through samples
-        for n in range(num_bins.size):
+        #   bins alread filled in previous samples
+        bins_filled = np.sum(num_bins[:n])
 
-            #   bins alread filled in previous samples
-            bins_filled = np.sum(num_bins[:n])
+        #   for sample n, fill num_bins[n] subsamples in the output array
+        num_e_out[bins_filled : bins_filled + num_bins[n]] \
+            = num_e_per_bin[n]
+        r_out[:, bins_filled : bins_filled + num_bins[n]] = r[:, n][:, None]
 
-            #   for sample n, fill num_bins[n] subsamples in the output array
-            output_array[bins_filled: bins_filled + num_bins[n]] = arg[n]
-            output_num_electrons[bins_filled: bins_filled + num_bins[n]] \
-                = num_electrons_per_bin[n]
+        #   for the first remainder_electrons_per_bin[n] subsamples,
+        #   add one electron to the output electron count to spread
+        #   out the remainder evenly
+        num_e_out[
+            bins_filled: bins_filled + remainder_electrons_per_bin[n]
+            ] += 1
 
-            #   for the first remainder_electrons_per_bin[n] subsamples,
-            #   add one electron to the output electron count to spread
-            #   out the remainder evenly
-            output_num_electrons[
-                bins_filled: bins_filled + remainder_electrons_per_bin[n]
-                ] += 1
 
-        #  transpose again
-        output_array = np.transpose(output_array)
-
-        #  append to output list
-        output_arrays.append(output_array)
-
-    #output the subsampled data
-    return output_num_electrons, output_arrays
+    return num_e_out, r_out
 
