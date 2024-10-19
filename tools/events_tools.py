@@ -58,7 +58,7 @@ class Events:
         self.sims_params.live = False
 
         #   If .hdf5 files present, read those
-        if os.path.isfile(sim_file_name + '.hdf5') \
+        if os.path.isfile(sim_file_name.replace('.sim', '.hdf5')) \
             and not read_sim_file:
 
             print('Reading .hdf5 files')
@@ -67,7 +67,7 @@ class Events:
             self.truth, self.truth_hits, self.meta \
                 = file_tools.read_events_file(sim_file_name)
 
-            #   Trim arrays to only contain requested # o events
+            #   Trim arrays to only contain requested number of events
             if num_events_to_read < self.meta['num_events']:
                 self = trim_events(self, num_events_to_read)
 
@@ -302,17 +302,24 @@ class Events:
         import reconstruction_tools
 
         if database is None:
-            clf = reconstruction_tools.train_classifier(self.reconstructed_data,
-                                                        filename='classifier.pkl',
-                                                        plot_confusion_matrix=True)
+            clf = reconstruction_tools.train_classifier(
+                self.reconstructed_data,
+                filename='classifier.pkl',
+                plot_confusion_matrix=True
+                )
         else:
-            clf = reconstruction_tools.train_classifier(database,
-                                                        filename='a_major_classifier.pkl',
-                                                        plot_confusion_matrix=True)
+            clf = reconstruction_tools.train_classifier(
+                database,
+                filename='a_major_classifier.pkl',
+                plot_confusion_matrix=True
+                )
         self.classifier = clf
 
 
-    def classify_reconstructed_events(self,save_name=None,load_classifier=None):
+    def classify_reconstructed_events(self,
+                                      save_name=None,
+                                      load_classifier=None
+                                      ):
         import joblib
         from scipy.optimize import curve_fit
         import matplotlib.pyplot as plt
@@ -335,14 +342,16 @@ class Events:
         def lorentzian(x, x0, gamma, A):
             return A * (gamma**2 / ((x - x0)**2 + gamma**2))
 
-        hist, bins = np.histogram(df.query("use==1").ARM, bins=50, range=(-10,10))
+        hist, bins = np.histogram(df.query("use==1").ARM, bins=50,
+                                  range=(-10,10))
         x = (bins[1:] + bins[:-1]) / 2
         y = hist
 
         popt, _ = curve_fit(lorentzian, x, y, p0=[0, 1, max(y)])
 
         plt.clf()
-        plt.hist(df.query("use==1").ARM, bins=50, range=(-10,10), alpha=0.6, label='ARM histogram')
+        plt.hist(df.query("use==1").ARM, bins=50, range=(-10,10),
+                 alpha=0.6, label='ARM histogram')
         plt.xlabel('ARM [degrees]')
         plt.ylabel('Counts')
         plt.title('ARM histogram')
@@ -361,15 +370,6 @@ class Events:
         ########################################
 
         self.reconstructed_data = df
-
-
-
-
-
-
-
-
-
 
 
 def calculate_stats(

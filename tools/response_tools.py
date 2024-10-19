@@ -69,8 +69,7 @@ def apply_detector_response(events):
 
     import sims_tools
 
-    print('Applying detector response',
-          events.read_params.coarse_grids['signal_fraction'], "Signal Fraction")
+    print('Applying detector response')
 
     #   Calculate detector params
     events.read_params.calculate()

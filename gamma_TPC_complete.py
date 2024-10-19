@@ -113,7 +113,7 @@ if os.path.exists(activation_file_path):
     combined_file_path, activation_events_number = combine_files(activation_file_path, sim_file_path)
 else:
     combined_file_path = sim_file_path
-    activation_events_number = 0 
+    activation_events_number = 0
     print("No activation file found; using only simulation file.")
 
 # Rename .geo.pickle files
@@ -138,33 +138,33 @@ params = params_tools.ResponseParams(geo_params=geo_params)
 
 
 STUDY = "Optimistic"
-events.params.inputs['coarse_grids']['signal_fraction'] = 0.9
+events.read_params.inputs['coarse_grids']['signal_fraction'] = 0.9
 
 if STUDY == "Optimistic":
-    events.params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
-    events.params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
-    events.params.inputs['light']['collection'] = 0.3
-    events.params.inputs['material']['sigma_p'] = 0.04
-    events.params.inputs['coarse_grids']['noise'] = 10
+    events.read_params.inputs["spatial_resolution"]['sigma_xy'] = 2e-5
+    events.read_params.inputs["spatial_resolution"]['spatial_resolution_multiplier'] = 0.75
+    events.read_params.inputs['light']['collection'] = 0.3
+    events.read_params.inputs['material']['sigma_p'] = 0.04
+    events.read_params.inputs['coarse_grids']['noise'] = 10
 
 elif STUDY == "Neutral":
-    events.params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
-    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
-    events.params.inputs['light']['collection'] = 0.1
-    events.params.inputs['material']['sigma_p'] = 0.05
-    events.params.inputs['coarse_grids']['noise'] = 20
+    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 3e-5
+    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1
+    events.read_params.inputs['light']['collection'] = 0.1
+    events.read_params.inputs['material']['sigma_p'] = 0.05
+    events.read_params.inputs['coarse_grids']['noise'] = 20
 
 elif STUDY == "Pessimistic":
-    events.params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
-    events.params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
-    events.params.inputs['light']['collection'] = 0.05
-    events.params.inputs['material']['sigma_p'] = 0.06
-    events.params.inputs['coarse_grids']['noise'] = 40
+    events.read_params.inputs['spatial_resolution']['sigma_xy'] = 4e-5
+    events.read_params.inputs['spatial_resolution']['spatial_resolution_multiplier'] = 1.5
+    events.read_params.inputs['light']['collection'] = 0.05
+    events.read_params.inputs['material']['sigma_p'] = 0.06
+    events.read_params.inputs['coarse_grids']['noise'] = 40
 
-events.params.calculate()
+events.read_params.calculate()
 
 truth = events.truth
-hits  = events.truth_hits 
+hits  = events.truth_hits
 
 # 2 m2 detector
 R_max = np.sqrt(2/np.pi)
@@ -174,10 +174,10 @@ mask = np.zeros(len(truth), dtype=bool)
 mask[len_mask] = R < R_max
 
 
-print("Masking events", len(truth), "to", sum(mask), 
+print("Masking events", len(truth), "to", sum(mask),
       f"for R < {R_max:.3f} m. That's {sum(mask)/len(truth)*100:.2f}% of the events.")
 
-events.truth = truth[mask]    
+events.truth = truth[mask]
 events.truth_hits = hits[mask]
 
 events.apply_detector_response()
@@ -191,7 +191,7 @@ events.train_classifier_on_self()
 events.classify_reconstructed_events(save_name=sim_file_name)
 
 
-# need to report data 
+# need to report data
 # time in the simulation
 # number of passed cuts sum(mask)
 # number of events in the simulation len(truth)
