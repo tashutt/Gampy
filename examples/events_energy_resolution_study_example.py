@@ -3,14 +3,14 @@
 """
 Summer 2021
 
-Example of applying response study to events from .sim file.  
+Example of applying response study to events from .sim file.
 
 @author: tshutt
 """
 
 import file_tools
 import events_tools
-import params_tools
+import readout_tools
 import readout_studies
 
 import os
@@ -56,8 +56,6 @@ events = events_tools.Events(
     write_events_files=True
     )
 
-params = params_tools.Params(file_names['path_geometry'])
-
 #%%  Loop over study cases, applying detector response and plotting
 #   energy resolution
 
@@ -69,11 +67,10 @@ centers = edges[0:-1] + np.diff(edges)/2
 for nc in range(study.kit['num_cases']):
 
     #   Define parameters and apply values for this study
-    params = params_tools.Params(file_names['path_geometry'])
-    params.apply_study_case(study, nc)
+    events.read_params.apply_study_case(study, nc)
 
     #   Add detector response to MC truth
-    events.apply_detector_response(params)
+    events.apply_detector_response()
 
     counts, _ = np.histogram(
         events.measured_hits['total_energy'],
