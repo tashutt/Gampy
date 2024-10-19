@@ -38,7 +38,7 @@ class Sim_File:
             8/20 TS
         """
         #   Open
-        f = open(full_file_name + '.sim')
+        f = open(full_file_name)
 
         #   Skip to first event - text_line = 'SE'
         text_line = f.readline().strip('\n')
@@ -284,7 +284,7 @@ class Sim_File:
 
                 # if the detector id is 2 = calorimeter
                 # AND the 7th index (interaction id) is a number less than 5
-                # then that event should be flagged as a 
+                # then that event should be flagged as a
                 # bad calorimeter event... implemented in parse raw event
 
 
@@ -326,7 +326,7 @@ class Sim_File:
         #   Add raw_event to file object
         self.raw_event = raw_event
 
-    def parse_raw_event(self, geo_params=None):
+    def parse_raw_event(self, sims_params=None):
 
         """
         Parses the raw event information in self.raw_event, returning
@@ -417,7 +417,7 @@ class Sim_File:
         import numpy as np
         import copy
 
-        import geometry_tools
+        import sims_tools
 
         if not 'ht' in self.raw_event:
             sys.exit('*** Error in parse_raw_event - no ht lines ***')
@@ -450,9 +450,10 @@ class Sim_File:
         inert_material_list = self.raw_event['ia']['detector'] == 0
         decay_in_inert_material = np.any(decay_list & inert_material_list)
         calorimeter_involved = self.raw_event['ia']['detector'] == 2
-        happend_in_first_3   = self.raw_event['ia']['interaction_id'] < 5   
-        calorimeter_in_first_3 = np.any(calorimeter_involved & happend_in_first_3) 
-        
+        happend_in_first_3   = self.raw_event['ia']['interaction_id'] < 5
+        calorimeter_in_first_3 \
+            = np.any(calorimeter_involved & happend_in_first_3)
+
 
         #   The deposited energy, as reported by Cosima
         deposited_energy = self.raw_event['event_info']['deposited_energy']
@@ -633,10 +634,10 @@ class Sim_File:
                             r_raw,
                             axis=1,
                             weights=ht_energies)
-                        r_global = geometry_tools.global_to_cell_coordinates(
+                        r_global = sims_tools.global_to_cell_coordinates(
                             r_weighted,
                             cell,
-                            geo_params,
+                            sims_params,
                             reverse = True
                             )
                         int_r.append(r_global)
@@ -648,10 +649,11 @@ class Sim_File:
                     #   first in the split cells list, as this is the
                     #   cell that gets assigned to the original location
                     #   in the interaction arrays.  We do this by finding
-                    #   which cell has its center closest ot the interaction.
-                    #   This doesn't apply to initial charge particles, which
+                    #   which cell has its center closest to the interaction.
+                    #   This doesn't apply to initial charged particles, which
                     #   don't have an interaction.  Possibly the natural
-                    #   order of the HT lines makes this unnecessary.
+                    #   order of the HT lines makes this distance check
+                    #   unnecessary.
                     #   TODO: check if distance test is needed, and remove
                     #   if not
                     if ni != 0:
@@ -661,7 +663,7 @@ class Sim_File:
                         r_int[2] = self.raw_event['ia']['rz'][ni]
                         r_int = r_int / 100
                         interaction_cell = (all_cells[np.sqrt((((
-                            geo_params.cells['centers']
+                            sims_params.cells['centers']
                             [:, all_cells-1].T - r_int).T
                             )**2).sum(axis=0)).argmin()])
                         split_cells[ni].remove(interaction_cell)
@@ -1015,10 +1017,10 @@ class Sim_File:
                 self.raw_event['ht']['ry'][np.nonzero(ht_mask)[0][0]],
                 self.raw_event['ht']['rz'][np.nonzero(ht_mask)[0][0]]
                 ]) / 100
-            r_global = geometry_tools.global_to_cell_coordinates(
+            r_global = sims_tools.global_to_cell_coordinates(
                 r_cell,
                 cells[nsi],
-                geo_params,
+                sims_params,
                 reverse = True
                 )
             r[:, nsi] = r_global
@@ -1488,28 +1490,8 @@ class Sim_File:
         #   Recursively blab about secondaries
         dig_down(self, startindex, 1)
 
-
-
 ######## Helper functions ##########
-def calculate_theta(s_primary, incident_s):
-    import numpy as np
-    if len(s_primary[0]) == 0:
-        return np.nan
-    return np.arccos(np.dot(s_primary.T[0], incident_s))
-
-
-def calculate_z_drift(geo_params, r, cell):
-    import numpy as np
-    front_term = ((geo_params.cells['height'] / 2 +
-                   geo_params.z_centers['front_cells'] - r[2, :]) *
-                  geo_params.cells['front_layer'][cell - 1])
-    back_term = ((geo_params.cells['height'] / 2 -
-                  geo_params.z_centers['back_cells'] + r[2, :]) *
-                 geo_params.cells['back_layer'][cell - 1])
-    z_drift = front_term + back_term
-    return z_drift
-
-def particle_name(iso,ia=2):
+def particle_name(iso, ia=2):
 
     particle_ids = {
         0: "?", 1: "photon", 2: "positron", 3: "electron", 4: "proton",
@@ -1568,7 +1550,7 @@ def particle_name(iso,ia=2):
 ######## Helper functions ##########
 
 def read_events_from_sim_file(full_file_name,
-                              geo_params=None,
+                              sims_params=None,
                               num_events_to_read=1e10):
     """
     Opens .sim file and reads and parses all events to create hits, which
@@ -1589,7 +1571,7 @@ def read_events_from_sim_file(full_file_name,
 
     import awkward as ak
     import numpy as np
-    import geometry_tools
+    import sims_tools
 
     #   Open file
     sim_file = Sim_File(full_file_name)
@@ -1609,7 +1591,7 @@ def read_events_from_sim_file(full_file_name,
 
             #   Parse raw sim file information
             try:
-                sim_file.parse_raw_event(geo_params)
+                sim_file.parse_raw_event(sims_params)
             except:
                 print(f"ERROR, skipping {n}")
                 continue
@@ -1630,6 +1612,8 @@ def read_events_from_sim_file(full_file_name,
                 sim_file.parsed_event['incident_s'],
                 'total_energy':
                 sim_file.parsed_event['total_energy'],
+                'deposited_energy':
+                sim_file.raw_event['event_info']['deposited_energy'],
                 'escaped_energy':
                 sim_file.raw_event['event_info']['escaped_energy'],
                 'passive_energy':
@@ -1694,21 +1678,31 @@ def read_events_from_sim_file(full_file_name,
                 sim_file.parsed_event['cell_hit_count']
             }
 
-            # calculated information
+            #   Several calculated things
 
             #   "true" theta - from geometry of incident and first
             #   scattered vectors
-            truth_event['theta'] = calculate_theta(
-                truth_hits_event['s_primary'], truth_event['incident_s'])
+            if truth_hits_event['s_primary'].size > 0:
+                truth_event['theta'] = (
+                    np.arccos(np.dot(truth_hits_event['s_primary'].T[0],
+                                     truth_event['incident_s']))
+                    )
+            else:
+                truth_event['theta'] = np.nan
 
+            #   Drift distance is distance from z anode
+            truth_hits_event['z_drift'] = (
+                sims_params.cells['z_anode'][truth_hits_event['cell'] - 1]
+                - truth_hits_event['r'][2, :]
+                )
+
+            #   Particle name - combines partice ID and direction
             truth_event['particle_name'] = particle_name(
                 truth_event['incident_particle'],
                 truth_event['incident_s'][2]
                 )
 
-            truth_hits_event['z_drift'] = calculate_z_drift(
-                geo_params, truth_hits_event['r'], truth_hits_event['cell'])
-
+            #   Add these results to lists
             truth_list.append(truth_event)
             truth_hits_list.append(truth_hits_event)
 
@@ -1716,14 +1710,17 @@ def read_events_from_sim_file(full_file_name,
         if sim_file.raw_event['end_of_file']:
             break
 
+    #   Close .sim file
+    sim_file.f.close()
+
     # Convert lists of dictionaries to awkward arrays
     truth = ak.Array(truth_list)
     truth_hits = ak.Array(truth_hits_list)
 
     #   Generate locations in cell coordinates
-    r_cell = geometry_tools.global_to_cell_coordinates(truth_hits['r'],
+    r_cell = sims_tools.global_to_cell_coordinates(truth_hits['r'],
                                                        truth_hits['cell'],
-                                                       geo_params,
+                                                       sims_params,
                                                        reverse=False)
     truth_hits['r_cell'] = r_cell
 
@@ -1732,26 +1729,20 @@ def read_events_from_sim_file(full_file_name,
 
     return truth, truth_hits, meta
 
-def write_events_file(events, full_file_stub):
+def write_events_file(events, full_file_name):
     """
     Saves events to disk in .hdf5 and .pickle files
     full_file_stub includes path but not extensions
     """
 
-    import os
     import pickle
     import h5py
     import awkward as ak
-    import json
 
-    path, file_name = os.path.split(full_file_stub)
-    if file_name != events.meta['sim_file_name']:
-        raise ValueError('Output name does not match meta["sim_file_name"]')
-
-    with open(full_file_stub + '.meta.pickle', 'wb') as f:
+    with open(full_file_name.replace('.sim', '.meta.pickle'), 'wb') as f:
         pickle.dump(events.meta, f)
 
-    with h5py.File(full_file_stub + '.hdf5', 'w') as f:
+    with h5py.File(full_file_name.replace('.sim', '.hdf5'), 'w') as f:
         for key in ['truth', 'truth_hits']:
             group = f.create_group(key)
             ak_array = getattr(events, key)
@@ -1760,8 +1751,7 @@ def write_events_file(events, full_file_stub):
             group.attrs['form'] = form.to_json()
             group.attrs['length'] = length
 
-
-def read_events_file(full_file_stub):
+def read_events_file(full_file_name):
     """
     Loads events from .hdf5 and .pickle files
     full_file_stub includes path but not extensions
@@ -1772,10 +1762,7 @@ def read_events_file(full_file_stub):
     import awkward as ak
     import numpy as np
 
-    with open(full_file_stub + '.meta.pickle', 'rb') as f:
-        meta = pickle.load(f)
-
-    with h5py.File(full_file_stub + '.hdf5', 'r') as f:
+    with h5py.File(full_file_name.replace('.sim', '.hdf5'), 'r') as f:
         truth = ak.from_buffers(
             ak.forms.from_json(f['truth'].attrs['form']),
             f['truth'].attrs['length'],
@@ -1788,7 +1775,11 @@ def read_events_file(full_file_stub):
             {k: np.asarray(v) for k, v in f['truth_hits'].items()}
         )
 
-    return meta, truth, truth_hits
+    with open(full_file_name.replace('.sim', '.meta.pickle'), 'rb') as f:
+        meta = pickle.load(f)
+
+    # return meta, truth, truth_hits
+    return truth, truth_hits, meta
 
 def is_max_80_percent_larger_than_total(list_values):
     if len(list_values) > 3:
@@ -1898,7 +1889,6 @@ def write_evta_file(events, paths, bad_events, version='200'):
                             + f'{4*cal_ene/100 + 3:10.7f}\n'
                             )
 
-
 def fix_sim_file_ht_lines(full_sim_file_name_in,
                           full_geo_file_name,
                           full_sim_file_name_out
@@ -1918,13 +1908,13 @@ def fix_sim_file_ht_lines(full_sim_file_name_in,
     import pickle
 
     import response_tools
-    import params_tools
+    import readout_tools
 
-    #   Load geo_params that were generated for Cosima, then
+    #   Load sims_params that were generated for Cosima, then
     #   with these generate default response params
     with open(full_geo_file_name + '.pickle', 'rb') as f:
-        geo_params = pickle.load(f)
-    params = params_tools.ResponseParams(geo_params=geo_params)
+        sims_params = pickle.load(f)
+    read_params = readout_tools.Params(cells=sims_params.cells)
 
     #   Open file_names
     f_in = open(full_sim_file_name_in + '.sim')
@@ -1972,7 +1962,7 @@ def fix_sim_file_ht_lines(full_sim_file_name_in,
             r_global =response_tools.global_to_cell_coordinates(
                 r,
                 cell,
-                params,
+                read_params,
                 reverse = True
                 ) * 100
 
@@ -2061,9 +2051,9 @@ def get_geo_file_name(topology_id, values_id):
 
     return file_name
 
-def write_geo_files(path, params, values_id=0):
+def write_geo_files(path, sims_params, values_id=0):
     """
-    Writes geometry files - .setup, and copy of params into
+    Writes geometry files - .setup, and copy of sims_params into
         folder set by path
 
     values_id - integer tags for geometry values constants
@@ -2071,28 +2061,23 @@ def write_geo_files(path, params, values_id=0):
     returns file_names
     """
 
-    import sys
     import os
     import pickle
 
-    #   Detector geometry must be 'geomega'
-    if params.detector_geometry!='geomega':
-        sys.exit('Error in write_geo_files: detector_geometry not geomega')
-
     #   File names
-    file_name = get_geo_file_name(params.topology_id, values_id)
+    file_name = get_geo_file_name(sims_params.topology_id, values_id)
 
-    #   Calculate params to update file image
-    params.calculate()
+    #   Calculate sims_params to update file image
+    sims_params.calculate()
 
-    #   Write .setup from file image in params
+    #   Write .setup from file image in sims_params
     with open(os.path.join(path, file_name + '.setup'), 'w') as f:
-        for line in params.setup_file_lines:
+        for line in sims_params.setup_file_lines:
             f.write(line)
 
-    #   Write params
+    #   Write sims_params
     with open(os.path.join(path, file_name + '.pickle'), 'wb') as f:
-            pickle.dump(params, f)
+            pickle.dump(sims_params, f)
 
     return file_name
 
@@ -2166,15 +2151,15 @@ def add_evta_file_names(file_names, events):
 
     import os
 
-    #   Study tag, if study present
+    # #   Study tag, if study present
     study_tag = ''
-    if 'study' in events.meta['params'].meta:
-        # study_tag = events.meta['params']. \
-        #     meta['study'].labels['study_tag']
-        case = events.meta['params'].meta['case']
-        case_tag = events.meta['params']. \
-            meta['study'].labels['case_tag'][case]
-        study_tag = '.s' + case_tag
+    # if 'study' in events.meta['params'].meta:
+    #     # study_tag = events.meta['params']. \
+    #     #     meta['study'].labels['study_tag']
+    #     case = events.meta['params'].meta['case']
+    #     case_tag = events.meta['params']. \
+    #         meta['study'].labels['case_tag'][case]
+    #     study_tag = '.s' + case_tag
 
     start, end = file_names['base'].split('.inc')
 
