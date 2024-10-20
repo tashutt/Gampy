@@ -1,0 +1,25 @@
+calorimeter:
+  thickness: 0.0
+cell_geometries:
+  hexagonal:
+    flat_to_flat: 0.175
+  rectangular:
+    width_x: 0.175
+    width_y: 0.175
+cell_geometry: hexagonal
+cells:
+  anode_plane_thickness: 0.005
+  cathode_plane_thickness: 0.005
+  height: 0.175
+  wall_thickness: 0.0003
+outer_acd:
+  thickness: 0.02
+planar_acd:
+  thickness: 0.007
+shield:
+  material: Lead
+  thickness: 0.0
+vessel:
+  lar_min_radial_gap: 0.05
+  r_outer: 1.85
+  wall_thickness: 0.004
