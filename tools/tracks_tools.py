@@ -406,9 +406,11 @@ def save_track(full_file_name, track, write_raw=True, write_compressed=True):
 
 def load_track(full_file_name, read_raw=True, read_compressed=True):
     """
-    Loads .npz + .pickel track in full_file_name
+    Loads .npz and/or c.npz tracks, and.pickle
 
-    returns raw, compressed, truth and metha
+    full_file_name - path + file name, not including extensions
+
+    returns raw, compressed, truth and meta
 
     Returns None for raw and compressed data if these are not read, for
     any reason.
@@ -418,6 +420,10 @@ def load_track(full_file_name, read_raw=True, read_compressed=True):
     import sys
     import pickle
     import numpy as np
+
+    #   If file ends with .c, strip this off
+    if len(full_file_name.split('.c'))>1:
+        full_file_name = full_file_name.split('.c')[0]
 
     #   Read raw track, if it exists
     raw = None

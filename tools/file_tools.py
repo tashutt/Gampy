@@ -63,7 +63,6 @@ class Sim_File:
         Megalib units of cm and keV are preserved.
         """
 
-        import sys
         import numpy as np
         from collections import deque
 

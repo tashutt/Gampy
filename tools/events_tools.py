@@ -270,7 +270,6 @@ class Events:
     # default is to use the measured hits, but if use_truth_hits is True, then
     # the truth hits are used
 
-
     def reconstruct_events(self,
                         IN_VECTOR = None,
                         LEN_OF_CKD_HITS = [3,4,5,6,7,8],
@@ -314,7 +313,6 @@ class Events:
                 plot_confusion_matrix=True
                 )
         self.classifier = clf
-
 
     def classify_reconstructed_events(self,
                                       save_name=None,
@@ -370,7 +368,6 @@ class Events:
         ########################################
 
         self.reconstructed_data = df
-
 
 def calculate_stats(
             self,

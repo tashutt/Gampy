@@ -102,7 +102,7 @@ def display_track(track,
         drifted = False
     if pixels and not hasattr(track, 'pixel_samples'):
         pixels = False
-    if not (raw or drifted or pixels):
+    if not (raw or compressed or drifted or pixels):
         print('*** Nothing to display')
         return None, None, None
 
@@ -147,7 +147,7 @@ def display_track(track,
 
     #   Track gets digitized at physical scale resolution, and converted
     #   to scale for plotting
-    if raw or drifted:
+    if raw or compressed or drifted:
         r_p, n_e_p = prep_track(r, num_e, resolution, scale, track_extent)
 
     #   Plot limits
@@ -211,7 +211,7 @@ def display_track(track,
         drift_tag = ''
 
     #   Set maximum charges or samples
-    if  (raw or drifted) and max_num_e is None:
+    if  (raw or compressed or drifted) and max_num_e is None:
         max_num_e = n_e_p.max()
     if  pixels and max_pixel_samples is None:
         max_pixel_samples = np.max(
@@ -224,7 +224,7 @@ def display_track(track,
     #   3D
     ax = fig.add_subplot(projection='3d')
 
-    if raw or drifted:
+    if raw or compressed or drifted:
         ax.scatter(
             r_p[0,],
             r_p[1,],
