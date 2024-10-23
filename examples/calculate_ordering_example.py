@@ -11,7 +11,6 @@ Created on Wed Aug  4 00:13:17 2021
 
 import file_tools
 import events_tools
-import params_tools
 
 import os
 
@@ -54,8 +53,7 @@ events = events_tools.Events(
     write_events_files=True
     )
 
-params = params_tools.Params(file_names['path_geometry'])
-events.apply_detector_response(params)
+events.apply_detector_response()
 
 #%%     Cacluate ordering
 events.calculate_ordering(num_hits_list)

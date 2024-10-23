@@ -28,21 +28,24 @@ steering = {}
 
 steering['particles'] =  2
 steering['material'] =  'LAr'
-# steering['material'] =  'LXe'
 
-# steering['energies'] =  np.array([300, 500, 750, 1000, 1250, 1500, 2000,
-#                                   2500, 3000, 3500, 4000, 5000])
-# steering['num_tracks'] = 300 * np.ones_like(steering['energies'], dtype=int)
+# steering ['energies'] \
+#     =  np.array([100, 200, 500, 1000, 2000, 5000, 10000], dtype=float)
+# steering ['num_tracks'] \
+#     =  np.array([2000, 2000, 2000, 1000, 1000, 500, 500], dtype=int)
 
-energy = 10000
-num_events = 500
+steering ['energies'] =  np.array([10000], dtype=float)
+steering ['num_tracks'] \
+    = np.ones_like(steering ['energies'], dtype=int) * int(4000)
 
-steering ['energies'] =  np.array([energy], dtype=int)
-steering['num_tracks'] = num_events \
-    * np.ones(len(steering ['energies']), dtype=int)
+# steering ['energies'] = np.array([10000, 20000, 50000, 100000], dtype=float)
+# steering ['num_tracks'] \
+#       = np.ones_like(steering ['energies'], dtype=int) * int(1e4)
 
 #   Use this for big tracks, otherwise omit.
-compression_bin_size = None
+compress = True
+compression_scale = 30e-6
+delete_raw = True
 
 #   Paths
 p={}
@@ -55,11 +58,10 @@ p['output'] = '/Users/tshutt/Documents/Work/Simulations/Penelope/Tracks'
 penelope_tools.simple_penelope_track_maker(
     p,
     steering,
-    random_initial_direction=True,
+    initial_direction='random',
+    wipe_folders=False,
     reset_origin=False,
     fresh_seed=True,
-    delete_penelope_data=False,
-    compression_bin_size=compression_bin_size
+    delete_penelope_data=True,
     )
-
 

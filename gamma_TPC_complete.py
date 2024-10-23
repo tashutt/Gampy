@@ -113,7 +113,7 @@ if os.path.exists(activation_file_path):
     combined_file_path, activation_events_number = combine_files(activation_file_path, sim_file_path)
 else:
     combined_file_path = sim_file_path
-    activation_events_number = 0 
+    activation_events_number = 0
     print("No activation file found; using only simulation file.")
 
 # Rename .geo.pickle files
@@ -164,7 +164,7 @@ elif STUDY == "Pessimistic":
 events.params.calculate()
 
 truth = events.truth
-hits  = events.truth_hits 
+hits  = events.truth_hits
 
 # 2 m2 detector
 R_max = np.sqrt(2/np.pi)
@@ -174,10 +174,10 @@ mask = np.zeros(len(truth), dtype=bool)
 mask[len_mask] = R < R_max
 
 
-print("Masking events", len(truth), "to", sum(mask), 
+print("Masking events", len(truth), "to", sum(mask),
       f"for R < {R_max:.3f} m. That's {sum(mask)/len(truth)*100:.2f}% of the events.")
 
-events.truth = truth[mask]    
+events.truth = truth[mask]
 events.truth_hits = hits[mask]
 
 events.apply_detector_response()
@@ -191,7 +191,7 @@ events.train_classifier_on_self()
 events.classify_reconstructed_events(save_name=sim_file_name)
 
 
-# need to report data 
+# need to report data
 # time in the simulation
 # number of passed cuts sum(mask)
 # number of events in the simulation len(truth)

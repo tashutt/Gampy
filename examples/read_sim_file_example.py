@@ -23,7 +23,7 @@ paths['plots'] =  os.path.join(paths['root'], 'Plots')
 topology_id=1
 values_id=3
 
-num_events = int(1e5)
+num_events = int(1e4)
 gamma_energy = 1000
 beam = 'FarFieldIsotropic'
 # beam = 'FarFieldPointSource'
@@ -34,7 +34,8 @@ inc_id_tag = '.inc1.id1'
 
 #%% Get events
 
-sim_file_name = 'AllSky550km_GeoT01v03.inc2.id1'
+# sim_file_name = 'AllSky550km_GeoT01v03.inc2.id1'
+sim_file_name = 'FarFieldIsotropic_1.000MeV_GeoT01v03.inc1.id1'
 # sim_file_name = file_tools.get_sim_file_name(
 #     beam,
 #     gamma_energy,

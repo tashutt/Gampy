@@ -30,7 +30,7 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
         The readout of those pixels is done by readout_pixels.
 
         This currently uses an idealized zero noise trigger for the summed
-        signal in each logical coarse voxel, and does not yet used
+        signal in each logical coarse voxel, and does not yet use
         a trigger found separately from the coarse sensors.  The latter
         is a signficantly simplification in the case of coarse wires.
 
@@ -54,14 +54,14 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
             r_raw - locations of samples. array of size
                 [3, samples_triggered.size]
 
-    Note that edges of sampling in z generated here.
+    Note that edges of sampling in z are generated here.
 
     10/22 TS
     """
 
     import numpy as np
 
-    from Gampy.tools import readout_tools
+    import readout_tools
 
     #   Find coarse voxels defined by coarse_sensors that contain charge
     voxels = find_voxels(r, coarse_sensors)
@@ -413,7 +413,7 @@ def readout_coarse_grids(r, num_e, coarse_grid_sensors, stats_output=False):
             )
 
         #   Booleans masks for presence signal, and triggered signal.
-        #   Note the trigger we account for the sharing amongst 4 wires,
+        #   Note for the trigger we account for the sharing amongst 4 wires,
         #   with signal sensors['signa_fraction']
         signal_mask = samples_span[n] > 0
         triggered_mask = (

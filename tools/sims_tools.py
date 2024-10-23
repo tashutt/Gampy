@@ -42,7 +42,6 @@ class Params():
                  cell_bounds=None):
         """ """
         import sys
-        import math
 
         #   Load Geomega .yaml inputs, calculates parameters.
         if ((inputs_source == 'gomega_defaults')
@@ -123,7 +122,7 @@ def get_params_inputs(inputs_source='gomega_defaults', cell_geometry=None):
     if inputs_source == 'gomega_defaults':
         inputs_source = os.path.join(
             os.path.dirname(os.path.split(__file__)[0]),
-            'default_inputs',
+            'inputs',
             'default_sims_inputs.yaml'
             )
 
@@ -296,21 +295,20 @@ def calculate_geomega_geometry_v1(params):
     params.topology_id = 1
 
     #   Calculate a set of temporary variables for convenience.
-    surround_r = 1.7 * params.vessel['r_outer']
+    surround_r = 1.5 * params.vessel['r_outer']
 
-    vessel_height_outer = 1 * (
+    vessel_height_outer = 2 * (
         2.0 * params.vessel['wall_thickness']
         + 2.0 * params.planar_acd['thickness']
         + 2.0 * params.cells['height']
-        + 0*params.shield['thickness']
-        + 0*params.calorimeter['thickness']
-        + 2*params.cells['cathode_plane_thickness']
+        + params.shield['thickness']
+        + params.calorimeter['thickness']
         )
     vessel_r = params.vessel['r_outer'] \
         - params.vessel['wall_thickness']
 
     all_ar_height = vessel_height_outer \
-        - 2 * params.vessel['wall_thickness'] \
+        - 2 * params.vessel['wall_thickness']
 
     planar_acd_z_center = (
             params.cells['cathode_plane_thickness']
@@ -327,7 +325,7 @@ def calculate_geomega_geometry_v1(params):
         )
     cell_z_anode = (
         params.cells['cathode_plane_thickness']
-        + params.cells['height'] / 2.0
+        + params.cells['height']
         )
 
     # #   Geomega z coordinate for various layers.  This is the center
@@ -524,6 +522,13 @@ def calculate_geomega_geometry_v1(params):
 
     lines.append('\n')
 
+    # Outer ACD cylinder
+    # outer_acd_thickness = params.planar_acd["thickness"]
+    #   TODO:  remove this kludge - put in params
+
+    calAndShield =( 0* params.calorimeter["thickness"]
+                +  params.shield["thickness"]
+                )
     lines.append('// Outer ACD cylinder\n')
     lines.append('Volume OuterACD\n')
     lines.append('OuterACD.Material Argon\n')
@@ -531,14 +536,14 @@ def calculate_geomega_geometry_v1(params):
         'OuterACD.Shape TUBE '
         + f'{vessel_r*100.0:10.7f} ' # inner radius
         + f'{(vessel_r + params.outer_acd["thickness"])*100.0:10.7f} '
-        + f'{(vessel_height_outer/2)*100.0:10.7f} '
+        + f'{(vessel_height_outer/2 + calAndShield/2)*100.0:10.7f} '
         + '0. '
         + '360.'
         + '\n'
     )
     lines.append(
         'OuterACD.Position 0.0 0.0 '
-        + f'{(vessel_height_outer/2)*100.0:10.7f}\n'
+        + f'{(vessel_height_outer/2 - calAndShield)*100.0:10.7f}\n'
         )
     lines.append('OuterACD.Color 15\n')
     lines.append('OuterACD.Mother WorldVolume\n\n')
@@ -579,7 +584,7 @@ def calculate_geomega_geometry_v1(params):
         + '360.'
         + '\n'
         )
-    lines.append('AllArgon.Position 0.0 0.0 0.0 \n')
+    lines.append('AllArgon.Position 0.0 0.0 0.0\n')
     lines.append('AllArgon.Color 38\n')
     lines.append('AllArgon.Mother Vessel\n')
 
@@ -651,28 +656,27 @@ def calculate_geomega_geometry_v1(params):
     lines.append('/////////////////////////////////////////\n')
 
     lines.append('\n')
-    acd_offset_z = params.planar_acd["thickness"] \
-        + params.cells["wall_thickness"]/2 
-
 
     lines.append('BaseACDLayer.Copy Top_ACD\n')
     lines.append(
         'Top_ACD.Position  0.0 0.0 '
-        + f'{(all_ar_height
-             )*100.0 :10.7f}'
+        + f'{planar_acd_z_center*100.0:10.7f}'
         + '\n'
         )
     lines.append('Top_ACD.Rotation   0. 0. 0.\n')
-    lines.append('Top_ACD.Material Argon\n')
+    lines.append('Bottom_ACD.Material Argon\n')
     lines.append('Top_ACD.Mother     WorldVolume\n')
 
     lines.append('\n')
 
+    shield_z = - ( params.calorimeter["thickness"]
+                   +  params.shield["thickness"]
+                   )
     lines.append('BaseACDLayer.Copy Bottom_ACD\n')
 
     lines.append(
         'Bottom_ACD.Position  0.0 0.0 '
-        + f'{acd_offset_z*100.0:10.7f}'
+        + f'{-planar_acd_z_center*100.0:10.7f}'
         + '\n'
         )
     lines.append('Bottom_ACD.Rotation  0. 0. 0.\n')
@@ -691,66 +695,35 @@ def calculate_geomega_geometry_v1(params):
         lines.append('\n')
         lines.append('Volume BaseCalorimeter\n')
         lines.append('BaseCalorimeter.Material CsI\n')
-        lines.append('BaseCalorimeter.Shape BOX 1 1 1\n')
 
-        # Single loop to handle both X and Y layers as their number of bars is assumed to be equal
-        z_offset = params.planar_acd["thickness"] / 100.0 
-        num_bars = int(1.9 * vessel_r / params.calorimeter["thickness"])
-        for i in range(num_bars):
-            # X-oriented bars (first layer)
-            x_position = (i - num_bars // 2) * params.calorimeter["thickness"]
-            if abs(x_position) <= vessel_r:
-                max_y_length = 0.95 * math.sqrt(vessel_r**2 - x_position**2)
-            else:
-                continue  # Skip if outside the vessel
 
-            lines.append(f'BaseCalorimeter.Copy CalorimeterBarX_{i}\n')
-            lines.append(
-                f'CalorimeterBarX_{i}.Shape BOX '
-                f'{params.calorimeter["thickness"] / 2 * 100.0:10.7f} '
-                f'{max_y_length * 100.0:10.7f} '
-                f'{params.calorimeter["thickness"] / 2 * 100.0:10.7f}\n'
+        lines.append(
+            'BaseCalorimeter.Shape BOX '
+            + f'{((vessel_r*100) / (2 ** 0.27)):10.7f} '
+            + f'{((vessel_r*100) / (2 ** 0.27)):10.7f} '
+            + f'{params.calorimeter["thickness"]/2*100.0:10.7f} '
+            #+ '0. '
+            #+ '360.'
+            + '\n'
             )
-            lines.append(f'CalorimeterBarX_{i}.Color 11\n')
-            lines.append(
-                f'CalorimeterBarX_{i}.Position {x_position * 100.0:10.7f} 0.0 '
-                f'{(-params.calorimeter["thickness"] / 2) * 100.0 - z_offset:10.7f}\n'
-            )
-            lines.append(f'CalorimeterBarX_{i}.Mother WorldVolume\n\n')
+        lines.append('BaseCalorimeter.Color 11\n')
 
-            # Y-oriented bars (second layer)
-            y_position = (i - num_bars // 2) * params.calorimeter["thickness"]
-            if abs(y_position) <= vessel_r:
-                max_x_length = 0.95 * math.sqrt(vessel_r**2 - y_position**2)
-            else:
-                continue  # Skip if outside the vessel
-
-            lines.append(f'BaseCalorimeter.Copy CalorimeterBarY_{i}\n')
-            lines.append(
-                f'CalorimeterBarY_{i}.Shape BOX '
-                f'{max_x_length * 100.0:10.7f} '
-                f'{params.calorimeter["thickness"] / 2 * 100.0:10.7f} '
-                f'{params.calorimeter["thickness"] / 2 * 100.0:10.7f}\n'
-            )
-            lines.append(f'CalorimeterBarY_{i}.Color 12\n')
-            lines.append(
-                f'CalorimeterBarY_{i}.Position 0.0 {y_position * 100.0:10.7f} '
-                f'{(-params.calorimeter["thickness"] * 3 / 2) * 100.0 - z_offset:10.7f}\n'
-            )
-            lines.append(f'CalorimeterBarY_{i}.Mother WorldVolume\n\n')
-
-        # Sensitive volume and detector settings
+        lines.append('\n')
         lines.append('Calorimeter       CsICal\n')
-        lines.append('CsICal.DetectorVolume  BaseCalorimeter\n')  
+        lines.append('CsICal.DetectorVolume  BaseCalorimeter\n')
         lines.append('CsICal.SensitiveVolume BaseCalorimeter\n')
         lines.append('CsICal.TriggerThreshold 50\n')
         lines.append('CsICal.EnergyResolution Gauss 662 662 12.65\n')
         lines.append('CsICal.EnergyResolution Gauss 661 661 12.43\n')
         lines.append('CsICal.DepthResolution 662 0.21\n')
+        lines.append(
+            'BaseCalorimeter.Position  0.0 0.0 '
+            + f'{(-params.calorimeter["thickness"] / 2)*100.0:10.7f}\n'
+            )
+        lines.append('BaseCalorimeter.Rotation   0. 0. 0.\n')
+        lines.append('BaseCalorimeter.Mother     WorldVolume\n')
+
         lines.append('\n')
-
-
-
 
     if params.shield['thickness'] != 0.0:
         lines.append('/////////////////////////////////////////\n')
@@ -979,33 +952,27 @@ def global_to_cell_coordinates(r_in, cell, params, reverse=False):
     elif r_in.ndim == 2:
         r_in = ak.Array([r_in])
     else:
-        r_in = np.expand_dims(r_in, axis=0)
-        r_in = ak.Array(r_in)
-        cell = np.expand_dims(cell, axis=0)
-        cell = ak.Array(cell)
+        r_in = ak.Array([[r_in]])
+        cell = ak.Array([cell])
 
     modified_x_list = []
     modified_y_list = []
     modified_z_list = []
 
     # Create mask based on cell presence
-    if len(cell) > 1:
-        cell_mask = ak.num(cell) > 0
-    else:
-        cell_mask = [1]
-
+    cell_mask = ak.num(cell) > 0
 
     # Perform reverse transformation.
-    # Reverse: shift + rotate.
+    # Reverse: shift + rorate.
     if reverse:
         for i, val in enumerate(cell_mask):
             if val:
                 modified_x = r_in[i,0] \
-                    + sign * [x_o[cell[i] - 1]][0]
+                    + sign * ak.Array([x_o[cell[i] - 1]][0])
                 modified_y = r_in[i,1] \
-                    + sign * [y_o[cell[i] - 1]][0]
+                    + sign * ak.Array([y_o[cell[i] - 1]][0])
                 modified_z = r_in[i,2:] \
-                    + sign * [z_o[cell[i] - 1]][0]
+                    + sign * ak.Array([z_o[cell[i] - 1]][0])
 
                 # Perform rotation
                 temp_x = modified_x * np.cos(theta_rad) \
@@ -1016,12 +983,6 @@ def global_to_cell_coordinates(r_in, cell, params, reverse=False):
                 temp_x = r_in[i, 0]
                 temp_y = r_in[i, 1]
                 modified_z = r_in[i, 2:]
-
-            #if values of temp_x and temp_y are not arrays, convert them to arrays
-            if not isinstance(temp_x, ak.Array):
-                temp_x = ak.Array([temp_x])
-                temp_y = ak.Array([temp_y])
-                modified_z = ak.Array([modified_z])
 
             modified_x_list.append(temp_x)
             modified_y_list.append(temp_y)

@@ -8,8 +8,8 @@ Created on Mon Jun 12 15:47:44 2023
 
 def CellSize():
     """
-    Vary the width (defined as flat_to_flat distance, which matters
-        for hexagonal cells), and height of square GammaTPC cells.
+    Vary the width (defined as flat-to-flat distance for
+        hexagonal cells), and height of square GammaTPC cells.
 
     Index order is [width][height]
 
@@ -90,5 +90,5 @@ def CellSize():
             #   For params inputs, put fields, sub-fields,
             #   and values into list of arrays
             study['fields'].append(['cells', 'cells'])
-            study['sub_fields'].append(['flat_to_flat', 'height'])
+            study['sub_fields'].append(['width', 'height'])
             study['values'].append([widths[nw], heights[nd]])
