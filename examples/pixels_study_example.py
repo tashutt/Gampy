@@ -26,8 +26,8 @@ import sys
 import glob
 import matplotlib.pyplot as plt
 
-import tracks_tools
-import readout_studies
+from gampy.tools import tracks_tools
+from gampy.tools import readout_studies
 
 #%% What to do
 

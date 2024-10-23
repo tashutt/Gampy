@@ -14,8 +14,8 @@ sys.path.append('tools')
 sim_file_name = "FarFieldPointSourceFixed_1.000MeV_Cos1.0.inc1.id1.sim"
 sim_file_name = sim_file_name.strip('.sim')
 
-import events_tools
-import params_tools
+from gampy.tools import events_tools
+from gampy.tools import params_tools
 
 # Define paths
 paths = {}

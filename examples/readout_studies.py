@@ -23,7 +23,7 @@ class PixelPitchDriftDistance:
 
         import numpy as np
 
-        import readout_tools
+        from gampy.tools import readout_tools
 
         self.kit = {}
 
@@ -126,7 +126,7 @@ class GAMPixDNoiseDepth():
     def __init__(self, null=False):
 
         import numpy as np
-        import readout_tools
+        from gampy.tools import readout_tools
 
         self.kit = {}
 
@@ -323,7 +323,7 @@ class SpatialResolution:
             resolution_xy = [0.2e-3, 0.3e-3, 0.4e-3, 0.5e-3, 0.75e-3, 1e-3]
             resolution_z = resolution_xy
         else:
-            import response_definition
+            from gampy.tools import response_definition
             response = response_definition.Response()
             resolution_xy = response.spatial_resolution.sigma_xy
             resolution_z = response.spatial_resolution.sigma_z

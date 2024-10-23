@@ -8,10 +8,10 @@ Example of applying response study to events from .sim file.
 @author: tshutt
 """
 
-import file_tools
-import events_tools
-import readout_tools
-import readout_studies
+from gampy.tools import file_tools
+from gampy.tools import events_tools
+from gampy.tools import readout_tools
+from gampy.tools import readout_studies
 
 import os
 import numpy as np

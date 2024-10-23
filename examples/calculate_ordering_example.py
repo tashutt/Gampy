@@ -9,8 +9,8 @@ Created on Wed Aug  4 00:13:17 2021
 @author: tshutt
 """
 
-import file_tools
-import events_tools
+from gampy.tools import file_tools
+from gampy.tools import events_tools
 
 import os
 

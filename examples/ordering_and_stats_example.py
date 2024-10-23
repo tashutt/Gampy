@@ -20,8 +20,8 @@ This example uses two methods of events:
 @author: tshutt
 """
 
-import file_tools
-import events_tools
+from gampy.tools import file_tools
+from gampy.tools import events_tools
 
 import os
 import numpy as np

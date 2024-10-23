@@ -4,10 +4,10 @@ import sys
 sys.path.append('tools')
 
 import awkward as ak
-import events_tools
 import numpy as np
-import params_tools
 
+from gampy.tools import events_tools
+from gampy.tools import params_tools
 
 paths = {}
 paths['root'] = 'cosima_run2'

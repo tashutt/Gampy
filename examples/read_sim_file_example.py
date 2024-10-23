@@ -9,8 +9,8 @@ Created on Mon Jun 26 01:04:09 2023
 """
 import os
 
-import file_tools
-import events_tools
+from gampy.tools import file_tools
+from gampy.tools import events_tools
 
 #%%   Paths
 paths = {}

@@ -12,7 +12,7 @@ Created on Tue Apr 25 08:31:33 2023
 import os
 import glob
 
-import tracks_tools
+from gampy.tools import tracks_tools
 
 #   Track energy and particle
 energy = 750

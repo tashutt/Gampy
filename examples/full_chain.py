@@ -17,9 +17,9 @@ import subprocess
 import numpy as np
 import awkward as ak
 
-import geometry_params
-import file_tools
-import events_tools
+from gampy.tools import geometry_params
+from gampy.tools import file_tools
+from gampy.tools import events_tools
 
 import argparse
 parser = argparse.ArgumentParser(description='choose sim options')

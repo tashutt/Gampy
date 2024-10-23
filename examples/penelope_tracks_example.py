@@ -14,7 +14,7 @@ energies in keV
 11/9/21     TS
 """
 
-import penelope_tools
+from gampy.tools import penelope_tools
 
 import numpy as np
 

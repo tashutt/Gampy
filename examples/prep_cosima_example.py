@@ -10,8 +10,8 @@ Example of creating a Geomega geometry .source file
 
 import os
 
-import sims_tools
-import file_tools
+from gampy.tools import sims_tools
+from gampy.tools import file_tools
 
 #   Paths
 paths = {}

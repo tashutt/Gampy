@@ -6,7 +6,7 @@ Created on Thu Feb  4 22:26:32 2021
 @author: tshutt
 """
 
-import file_tools
+from gampy.tools import file_tools
 
 import os
 import time
