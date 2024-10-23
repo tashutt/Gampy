@@ -20,18 +20,26 @@ import numpy as np
 
 #  What to do
 
-#   Pick sets of energies, and numbrer of tracks at each energy.
-#   Put in steering file
+#   Pick sets of energies, particles and numbers of tracks - put
+#   in steering file
+#   Particle: 1=e-, 2=g, 3=e+
+
 steering = {}
+
+steering['particles'] =  2
+steering['material'] =  'LAr'
+# steering['material'] =  'LXe'
+
 # steering['energies'] =  np.array([300, 500, 750, 1000, 1250, 1500, 2000,
 #                                   2500, 3000, 3500, 4000, 5000])
 # steering['num_tracks'] = 300 * np.ones_like(steering['energies'], dtype=int)
 
-steering['energies'] =  np.array([7500, 10000])
-steering['num_tracks'] = 100 * np.ones_like(steering['energies'], dtype=int)
+energy = 10000
+num_events = 500
 
-# steering ['energies'] =  np.array([1000000])
-# steering['num_tracks'] = 10 * np.ones(len(steering ['energies']), dtype=int)
+steering ['energies'] =  np.array([energy], dtype=int)
+steering['num_tracks'] = num_events \
+    * np.ones(len(steering ['energies']), dtype=int)
 
 #   Use this for big tracks, otherwise omit.
 compression_bin_size = None
@@ -40,7 +48,7 @@ compression_bin_size = None
 p={}
 p['executable'] \
     ='/Users/tshutt/Documents/Work/AnalysisCode/Penelope/Code/execute'
-p['output'] = '/Users/tshutt/Documents/Work/Simulations/Penelope/LAr/Tracks'
+p['output'] = '/Users/tshutt/Documents/Work/Simulations/Penelope/Tracks'
 
 #%%  Launch simulation
 
@@ -49,9 +57,8 @@ penelope_tools.simple_penelope_track_maker(
     steering,
     random_initial_direction=True,
     reset_origin=False,
-    wipe_folders=False,
     fresh_seed=True,
-    delete_penelope_data=True,
+    delete_penelope_data=False,
     compression_bin_size=compression_bin_size
     )
 

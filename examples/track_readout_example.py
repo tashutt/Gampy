@@ -14,20 +14,21 @@ import glob
 
 import electron_track_tools
 
-#   Track energy
-energy = 1000
+#   Track energy and particle
+energy = 750
+particle = 'electrons'
 
 #   Depth is a drift distance added to all the z values of
 #   the raw track.  That is, each element of the track drifts through
 #   a distance = depth - track.raw_track[2, :].   If depth = 0, then
 #   track.raw_track[2, :] needs to be negative.
-depth = 4
+depth = 0.05
 
 #   Find files - get list of files in folder with single energy tracks.
 etag = f'E{energy:07.0f}'
 p = {'energies'  : \
-     '/Users/tshutt/Documents/Work/Simulations/Penelope/LAr/Tracks'}
-p['tracks'] = os.path.join(p['energies'], etag)
+     '/Users/tshutt/Documents/Work/Simulations/Penelope/Tracks/LAr'}
+p['tracks'] = os.path.join(p['energies'], particle, etag)
 if not p['tracks']:
     print('*** Error: folder ' + etag + ' not found')
     raise SystemExit()
@@ -42,10 +43,10 @@ print(f'{energy/1000:3.02f} keV track {file_num:1.0f}'
       + f', at {depth:2.1f} m depth')
 
 #   Set the charge readout to GAMPixD, then read out and blab.
-track.reset_params(charge_readout='GAMPixD')
+track.reset_params(charge_readout_name='GAMPixD')
 track.readout_charge(depth)
 
-print(track.params.charge_readout)
+print(track.read_params.charge_readout_name)
 print( '  charge surviving drift: '
       + f'{track.drifted_track["num_e"].sum():4.0f} e-')
 print( '  pixels charge: '
@@ -58,29 +59,29 @@ track.display(pixels=False)
 track.display(raw_track=False)
 
 #   Read out with LArPix
-track.reset_params(charge_readout='LArPix')
+track.reset_params(charge_readout_name='LArPix')
 track.readout_charge(depth)
 
-print(track.params.charge_readout)
+print(track.read_params.charge_readout_name)
 print( '  pixels charge: '
       + f'{track.pixel_samples["samples_triggered"].sum():4.0f} e-')
 
 #   Read out with AnodeGrid
-track.reset_params(charge_readout='AnodeGridD')
+track.reset_params(charge_readout_name='AnodeGridD')
 track.readout_charge(depth)
 
-print(track.params.charge_readout)
+print(track.read_params.charge_readout_name)
 print( '  anode grid charge: '
       + f'{track.anode_grid_samples["samples_triggered"].sum():4.0f} e-')
 
 #   Back to GAMPixD, also changing some settings
 noise = 1000
 lifetime = 5e-3
-track.reset_params(charge_readout='GAMPixD')
-track.params.inputs['charge_drift']['electron_lifetime'] = lifetime
-track.params.inputs['pixels']['noise'] = noise
+track.reset_params(charge_readout_name='GAMPixD')
+track.read_params.inputs['charge_drift']['electron_lifetime'] = lifetime
+track.read_params.inputs['pixels']['noise'] = noise
 track.readout_charge(depth)
-print(track.params.charge_readout)
+print(track.read_params.charge_readout_name)
 
 print(f'  Mod: pixels noise = {noise:3.0f} e-'
       + f', lifetime = {lifetime*1e3:3.1f} ms')
