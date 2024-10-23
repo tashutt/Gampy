@@ -13,7 +13,8 @@ def generate_cosmic_simulation(geo_full_file_name,
                                duration=100.0, 
                                num_triggers=10000, 
                                output_dir=None,
-                               only_photons=False):
+                               only_photons=False,
+                               data_location = "cosmic_flux/Data"):
     """
     Generate cosmic flux and create simulation configuration lines, for both activation and non-activation modes.
 
@@ -88,7 +89,7 @@ def generate_cosmic_simulation(geo_full_file_name,
     
     # TODO Rcut 
         
-    LEOClass = LEO(1.0*Altitude, 1.0*Inclination,Geomlat)
+    LEOClass = LEO(1.0*Altitude, 1.0*Inclination,Geomlat,data_location)
     ViewAtmo = 2*np.pi * (np.cos(np.deg2rad(LEOClass.HorizonAngle)) + 1)
     ViewSky  = 2*np.pi * (1-np.cos(np.deg2rad(LEOClass.HorizonAngle)))
 
@@ -131,6 +132,8 @@ def generate_cosmic_simulation(geo_full_file_name,
 
     #copy the beam files to Data
     data_dir = "cosmic_flux/Data"
+    if not os.path.exists(data_dir):
+        data_dir = os.path.join("Gampy", "cosmic_flux", "Data")
 
     for particle, beam_file in particle_beam_mapping.items():
         source_file = os.path.join(data_dir, beam_file)
@@ -229,9 +232,9 @@ def calculate_activation(geo_full_file_name, Inclination=0, Altitude=550, Elow=1
     
     return source_file_name2
 
-def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, Ehigh=8, duration=31556736, output_dir=None, dat_name=None):
+def activation_events(geo_full_file_name, activation_dat, duration, output_dir=None):
     
-    source_file_name3 = f"ActivationStep3For{Altitude}km_{Elow}to{Ehigh}keV.source"
+    source_file_name3 = f"ActivationStep3_{duration}_.source"
     
     lines = ['']
     lines.append('Version          1 \n')
@@ -247,12 +250,10 @@ def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, E
 
     lines.append('Run ActivationStep3\n')
 
-    lines.append(f'ActivationStep3.FileName                         ActivationStep3For{Altitude}km_{Elow}to{Ehigh}keV\n')
+    lines.append(f'ActivationStep3.FileName         {source_file_name3.strip(".source")}\n')
     lines.append('ActivationStep3.Time          ' + f'{duration} ' + '\n')
-    if dat_name is None:
-        lines.append(f'ActivationStep3.ActivationSources          ActivationFor{Altitude}km_{Elow}to{Ehigh}keV.dat')
-    else:
-        lines.append(f'ActivationStep3.ActivationSources          {dat_name}' )
+    lines.append(f'ActivationStep3.ActivationSources          {activation_dat}')
+
         
     lines.append('\n')
     lines.append('\n')
@@ -260,10 +261,7 @@ def activation_events(geo_full_file_name, Inclination=0, Altitude=550, Elow=1, E
     if output_dir is None:
         output_dir = os.getcwd()
 
-    dat_name = f"For{Altitude}km_{Elow}to{Ehigh}keV"
-    output_folder = os.path.join(output_dir, dat_name)
-
-    # Create the output folder if it doesn't exist
+    output_folder = os.path.join(output_dir)
     os.makedirs(output_folder, exist_ok=True)
 
     source_file_name3 = os.path.join(output_dir,

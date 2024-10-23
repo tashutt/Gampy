@@ -63,6 +63,7 @@ class Sim_File:
         Megalib units of cm and keV are preserved.
         """
 
+        import sys
         import numpy as np
         from collections import deque
 
@@ -275,6 +276,7 @@ class Sim_File:
                 #       /display/GTPC/MEGALib+notes)
                 #   which added a volume tag to the .sim file, but only
                 #   for drift chambers - detector_id = 5.
+                #   for 2 (calorimeter), set cell to the cell number
                 #   For other detector_ids, set cell to 0.
                 if detector_id==5:
                     ht['cell'].append(int(splitline[1].split('_')[1]))
@@ -416,10 +418,10 @@ class Sim_File:
         import numpy as np
         import copy
 
-        import sims_tools
+        from tools import sims_tools
 
         if not 'ht' in self.raw_event:
-            sys.exit('*** Error in parse_raw_event - no ht lines ***')
+            print('*** Error in parse_raw_event - no ht lines ***')
 
         #   These used for diagnostics
         blab = False
@@ -639,6 +641,8 @@ class Sim_File:
                             sims_params,
                             reverse = True
                             )
+                        if r_global.ndim == 3:
+                            r_global = r_global[:,0]
                         int_r.append(r_global)
                     split_cells[ni] = int_cells
                     split_energies[ni] = int_energies
@@ -655,29 +659,29 @@ class Sim_File:
                     #   unnecessary.
                     #   TODO: check if distance test is needed, and remove
                     #   if not
-                    if ni != 0:
-                        r_int = np.zeros(3, dtype=float)
-                        r_int[0] = self.raw_event['ia']['rx'][ni]
-                        r_int[1] = self.raw_event['ia']['ry'][ni]
-                        r_int[2] = self.raw_event['ia']['rz'][ni]
-                        r_int = r_int / 100
-                        interaction_cell = (all_cells[np.sqrt((((
-                            sims_params.cells['centers']
-                            [:, all_cells-1].T - r_int).T
-                            )**2).sum(axis=0)).argmin()])
-                        split_cells[ni].remove(interaction_cell)
-                        split_cells[ni].insert(0, interaction_cell)
-                        if interaction_cell == 0:
-                            print('Correct interaction split cell, '
-                                  + f'event {event_num:d}')
-                        else:
-                            print('Incorrect interaction split cell, '
-                                  + f'event {event_num:d}')
-                        if fuss:
-                            print('Multi cell interaction, '
-                                     + 'not from first track '
-                                     + f'event {event_num:d} '
-                                     + 'Need to check handling ')
+                    # if ni != 0:
+                    #     r_int = np.zeros(3, dtype=float)
+                    #     r_int[0] = self.raw_event['ia']['rx'][ni]
+                    #     r_int[1] = self.raw_event['ia']['ry'][ni]
+                    #     r_int[2] = self.raw_event['ia']['rz'][ni]
+                    #     r_int = r_int / 100
+                    #     interaction_cell = (all_cells[np.sqrt((((
+                    #         sims_params.cells['centers']
+                    #         [:, all_cells-1].T - r_int).T
+                    #         )**2).sum(axis=0)).argmin()])
+                    #     split_cells[ni].remove(interaction_cell)
+                    #     split_cells[ni].insert(0, interaction_cell)
+                    #     if interaction_cell == 0:
+                    #         print('Correct interaction split cell, '
+                    #               + f'event {event_num:d}')
+                    #     else:
+                    #         print('Incorrect interaction split cell, '
+                    #               + f'event {event_num:d}')
+                    #     if fuss:
+                    #         print('Multi cell interaction, '
+                    #                  + 'not from first track '
+                    #                  + f'event {event_num:d} '
+                    #                  + 'Need to check handling ')
 
         #   These are original interactions which are multi-cell
         multi_cell_interactions_mask = splits_count > 1
@@ -1009,19 +1013,22 @@ class Sim_File:
                 (self.raw_event['ht']['interaction_id']==interactions[nsi])
                 & (self.raw_event['ht']['cell'] != 0)
                 )
-            print(f'interaction: {interactions[nsi]:d}')
-            print(f'ht_mask.sum: {ht_mask.sum():d}')
+            #print(f'ht_mask.sum: {ht_mask.sum():d}')
             r_cell = np.array([
                 self.raw_event['ht']['rx'][np.nonzero(ht_mask)[0][0]],
                 self.raw_event['ht']['ry'][np.nonzero(ht_mask)[0][0]],
                 self.raw_event['ht']['rz'][np.nonzero(ht_mask)[0][0]]
                 ]) / 100
             r_global = sims_tools.global_to_cell_coordinates(
-                r_cell,
+                np.array(r_cell),
                 cells[nsi],
                 sims_params,
                 reverse = True
                 )
+            
+            # if the shape of r_global is (3,1) then convert it to (3,)
+            if r_global.ndim == 3:
+                r_global = r_global[:,:,0]
             r[:, nsi] = r_global
 
         #   Add split off part of multi cell interaction to end of
@@ -1085,7 +1092,11 @@ class Sim_File:
 
                 cells[ni] = split_cells[nmi-1][nc]
                 energies[ni] = split_energies[nmi-1][nc]
-                r[:, ni] = split_rs[nmi-1][nc]
+                try:
+                    r[:, ni] = split_rs[nmi-1][nc]
+                except:
+                    print(f'Error, event {event_num:d}: '
+                          + 'split cell location not found')
 
                 types[ni] = types[nsi]
                 s_primary[:, ni] = s_primary[:, nsi]
@@ -1570,7 +1581,7 @@ def read_events_from_sim_file(full_file_name,
 
     import awkward as ak
     import numpy as np
-    import sims_tools
+    from tools import sims_tools
 
     #   Open file
     sim_file = Sim_File(full_file_name)
@@ -1587,10 +1598,9 @@ def read_events_from_sim_file(full_file_name,
 
         #   This skips several types of bad events
         if sim_file.good_event:
-
             #   Parse raw sim file information
             try:
-                sim_file.parse_raw_event(sims_params)
+                sim_file.parse_raw_event()
             except:
                 print(f"ERROR, skipping {n}")
                 continue
@@ -1906,8 +1916,8 @@ def fix_sim_file_ht_lines(full_sim_file_name_in,
     import numpy as np
     import pickle
 
-    import response_tools
-    import readout_tools
+    from tools import response_tools
+    from tools import readout_tools
 
     #   Load sims_params that were generated for Cosima, then
     #   with these generate default response params
