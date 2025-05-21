@@ -1,75 +1,57 @@
 """
 Created on Mon Aug  3 19:22:53 2020
 
-Tracks object and associated routines.
+Collection of tools for the class Track which describes an electron track,
+and related functions.
 
-TODO: Move charge_drift_tools into readout_tools
+TODO: Add input from other sources.  Deal with variations in meta information.
+TODO: Move charge_drift_tools into readout_tools and remove from here
+TODO: Rationalize what is here, and what is in penelope_tools
+TODO: Use .h5py for files, and save in only one format
 
 @author: tshutt
 """
 
-class Tracks():
-    """
-    Tracks object for charge tracks for a single event, includes readout
-    and display, with associated routines.
-    """
+class Track:
+    """ Electron tracks, including raw_track, drifted_track and
+    pixels.  Also display options """
 
-    def __init__(self, track_file_name, charge_readout_name='GAMPixG',
-                 readout_inputs_file_name='default'):
+    def __init__(self, full_filename, charge_readout_name='GAMPixG'):
         """
         Start by reading raw track file, and define parameters
-        with a specified charge readout in a simple cell.
-
-        readout_inputs_file_name help: readout_tools
+        with a specified charge readout and simple detector geometry.
         """
-        import sims_tools
-        import readout_tools
+
+        from Gampy.tools import readout_tools
 
         #   Read track
-        raw_track, truth, meta = load_track(track_file_name)
+        raw_track, truth, meta = load_track(full_filename)
 
         #   Assign everything in track
         self.raw_track = raw_track
         self.truth = truth
         self.meta = meta
 
-        #   Get cell bounds
-        cell_bounds = get_cell_bounds(self, charge_readout_name,
-                                      readout_inputs_file_name)
+        #   Find bounding dimensions of cell that contains track
+        cell_bounds = find_bounding_box(self.raw_track['r'])
 
-        #   Load simple cell geometry parameters
-        self.sims_params = sims_tools.Params(
-            inputs_source='simple_cell',
-            cell_bounds=cell_bounds,
-            )
-
-        #   Load readout parameters
+        #   Generate response parameters, assing to self
         self.read_params = readout_tools.Params(
             charge_readout_name=charge_readout_name,
-            cells=self.sims_params.cells,
             )
 
-    def reset_params(self, charge_readout_name='GAMPixG',
-                     readout_inputs_file_name='default'):
+    def reset_params(self, charge_readout_name='GAMPixG'):
         """ reset params, which allows change of charge readout,
-        removes any samples that have already been generated """
-        import sims_tools
-        import readout_tools
+        removes any read out samples """
 
-        #   Get cell bounds
-        cell_bounds = get_cell_bounds(self, charge_readout_name,
-                                      readout_inputs_file_name)
+        from Gampy.tools import readout_tools
 
-        #   Load simple cell geometry parameters
-        self.sims_params = sims_tools.Params(
-            inputs_source='simple_cell',
-            cell_bounds=cell_bounds,
-            )
+        #   Find bounding dimensions of cell that contains track
+        cell_bounds = find_bounding_box(self.raw_track['r'])
 
-        #   Load readout parameters
+        #   Generate response parameters, assing ot self
         self.read_params = readout_tools.Params(
             charge_readout_name=charge_readout_name,
-            cells=self.sims_params.cells,
             )
 
         #   Strip out any previous samples, and drifted track
@@ -133,7 +115,7 @@ class Tracks():
         import numpy as np
         import sys
 
-        import charge_drift_tools
+        from Gampy.tools import charge_drift_tools
 
         #   Recalculate params
         self.read_params.calculate()
@@ -178,54 +160,44 @@ class Tracks():
             num_e = self.raw_track['num_e']
             r = self.raw_track['r']
 
-        #   Drift distance to anode, a positive quanity.  If depth supplied,
-        #   add it.
-        drift_distance = self.sims_params.cells['z_anode'] - r[2, :] + depth
+        #   Drift distance.  If depth supplied, subtract it.  Otherwise
+        #   it is the negative value of z (z=0 is the anode plane)
+        drift_distance = - (r[2, :] - depth)
 
-        #   Mask for valid drift distance
-        drift_mask = drift_distance>0
-        self.truth['num_electrons_inbounds'] = num_e[drift_mask].sum()
+        assert not np.any(drift_distance < 0), 'Negative drift distances in electron_track_tools.apply_drift'
 
-        #   If none with positve drift distance, barf out.
-        if drift_mask.sum()==0:
-            sys.exit('All electrons have negative drift distances')
-
-        #    Survival fraction to trapping.
+        #    Survival fraction to trapping
         survive = np.exp(-drift_distance
                       / self.read_params.charge_drift['drift_length'])
-        survive[~drift_mask] = 0
         num_e = np.random.binomial(num_e, survive)
         survival_mask = num_e>0
 
-        #   Combine drift and survival masks
-        mask = drift_mask & survival_mask
-
         #   Find dispersion in both directions
         sigma = charge_drift_tools.get_sigma(
-            drift_distance[mask],
+            drift_distance[survival_mask],
             drift_properties
             )
 
         #   Initialize drifted track, assign surviving charge and ids
         drifted_track = {}
-        drifted_track['num_e'] = num_e[mask]
+        drifted_track['num_e'] = num_e[survival_mask]
         if 'track_id' in self.raw_track:
-            drifted_track['track_id'] = out_data[1][mask]
-            drifted_track['particle_id'] = out_data[2][mask]
+            drifted_track['track_id'] = out_data[1][survival_mask]
+            drifted_track['particle_id'] = out_data[2][survival_mask]
 
         #   Add diffusion to r
-        new_num = mask.sum()
+        new_num = survival_mask.sum()
         drifted_track['r'] = np.zeros((3, new_num), dtype=float)
         drifted_track['r'][0, :] = \
-            r[0, mask] \
+            r[0, survival_mask] \
             + np.random.randn(new_num) \
             * sigma['transverse']
         drifted_track['r'][1, :] = \
-            r[1, mask] \
+            r[1, survival_mask] \
             + np.random.randn(new_num) \
             * sigma['transverse']
         drifted_track['r'][2, :] = \
-            r[2, mask] \
+            r[2, survival_mask] \
             + np.random.randn(new_num) \
             * sigma['longitudinal']
 
@@ -240,8 +212,8 @@ class Tracks():
         Updates params, drifts track, and reads track out with
             configured charge readout
 
-        depth: An added distance to that between each track element and
-            the aonde, which is defined per cell.
+        depth: The z value of each entry in the track is assumed negative,
+            and the drift distance for each is (z - depth).
 
         Output is added to track, and depends on charge readout.  See
             help in charge_readout_tools for decoumentation
@@ -253,7 +225,7 @@ class Tracks():
 
         import sys
 
-        import charge_readout_tools
+        from Gampy.tools import charge_readout_tools
 
         #   Recalculate params
         self.read_params.calculate()
@@ -331,7 +303,7 @@ class Tracks():
                     )
 
         else:
-            sys.exit('ERROR in tracks_tools: ' +
+            sys.exit('ERROR in electron_track_tools: ' +
                      'charge readout architecture not recognized')
 
     def display(self, **kwargs):
@@ -340,7 +312,7 @@ class Tracks():
 
         returns: fig, ax, plot_lims
         """
-        import display_tools
+        from Gampy.tools import display_tools
 
         fig, ax, plot_lims = display_tools.display_track(self, **kwargs)
 
@@ -434,6 +406,7 @@ def load_track(full_file_name):
     track_guts = np.load(os.path.join(full_file_name + '.npz'))
 
     #   load track_info from .pickle
+    full_file_name = full_file_name.replace(".c", "")
     with open(os.path.join(full_file_name + '.pickle'), 'rb') as f:
         track_info = pickle.load(f)
 
@@ -461,25 +434,6 @@ def load_track(full_file_name):
             = full_file_name.split(os.path.sep)[-1]
 
     return raw_track, truth, meta
-
-def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name):
-    """ Finds cell_bounds that contain raw track, buffering as
-    needed to accomodate coarse sensors """
-
-    import readout_tools
-
-    #   Find bounding dimensions that contains track
-    cell_bounds = find_bounding_box(track.raw_track['r'])
-
-    #   Buffer size to allow minimal coarse sensors
-    coarse_pitch = readout_tools.Params(
-        inputs_file_name = readout_inputs_file_name,
-        charge_readout_name=charge_readout_name,
-        ).coarse_pitch
-    cell_bounds[:, 0] -= coarse_pitch
-    cell_bounds[:, 1] += coarse_pitch
-
-    return cell_bounds
 
 def find_bounding_box(r, buffer=0.0):
     """

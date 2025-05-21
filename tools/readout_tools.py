@@ -45,7 +45,7 @@ class Params:
                  cells=None,
                  ):
         """ """
-        import sims_tools
+        from Gampy.tools import sims_tools
 
         #   Load inputs
         self.inputs, self.charge_readout_name = get_params_inputs(
@@ -70,7 +70,7 @@ class Params:
         import math
         import numpy as np
 
-        import charge_drift_tools
+        from Gampy.tools import charge_drift_tools
 
         #%%   Assign all inputs to attributes of params
         for key in self.inputs.keys():
@@ -435,7 +435,7 @@ def get_params_inputs(
     if inputs_file_name == 'default':
         inputs_file_name = os.path.join(
             os.path.dirname(os.path.split(__file__)[0]),
-            'inputs',
+            'default_inputs',
             'default_readout_inputs.yaml'
             )
 

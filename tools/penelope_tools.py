@@ -16,6 +16,7 @@ def simple_penelope_track_maker(p,
                         reset_origin=True,
                         wipe_folders=False,
                         fresh_seed=True,
+                        compression_bin_size=None
                         ):
     """
     Runs Penelope to create electron tracks in a single material, over
@@ -178,6 +179,9 @@ def simple_penelope_track_maker(p,
             os.system('./pentracks < pentracks.in')
 
             print('   Parsing PENELOPE output to python tracks')
+            if not compression_bin_size==None and compression_bin_size>0:
+                print('Compressing to ' +
+                      f'{compression_bin_size*1e6:5.0f} microns')
 
             #   These are data files to process
             full_file_name_list \
@@ -195,6 +199,7 @@ def simple_penelope_track_maker(p,
                     read_params,
                     initial_direction=initial_direction,
                     reset_origin=reset_origin,
+                    compression_bin_size=compression_bin_size
                     )
 
                 #   Save meta data
@@ -203,7 +208,6 @@ def simple_penelope_track_maker(p,
                 track['meta']['energy'] = energy
                 track['meta']['particle_ids'] = particle_ids
 
-
                 #  Save penelope_tracks
                 file_name = full_file_name.split(os.path.sep)[-1]
                 out_file_name = (
@@ -211,7 +215,7 @@ def simple_penelope_track_maker(p,
                     + '_'
                     + datetime.now().strftime('D%Y%m%d_T%H%M%f')
                     )
-                tracks_tools.save_penelope_track(
+                tracks_tools.save_track(
                     os.path.join(p2, out_file_name),
                     track
                     )
@@ -229,6 +233,7 @@ def parse_penelope_file(
         read_params,
         initial_direction=[0, 0, -1],
         reset_origin=True,
+        compression_bin_size=200e-6
         ):
     """
     Reads Penelope output track files in folder p_data, parses them to create
@@ -285,7 +290,7 @@ def parse_penelope_file(
     #   First line blank, next is simulation time
     simulation_date = lines[1]
 
-    data_block = np.zeros((len(lines)-2, 15))
+    data_block = np.zeros((len(lines)-2, 14))
     n = 0
     for line in lines[2:]:
         data_block[n, :] = np.array(line.split())
@@ -295,86 +300,59 @@ def parse_penelope_file(
     #      Penelope eV, cm.
     #      Output: keV, m.
     #   Fortran format:
-    #  IF(DE.GT.0.0) THEN
-    #     WRITE(28,'(i12, i7,4i3,i9,2i3,6e20.12)')
-    # 1     NSTEP, NPARTICLE,KPAR,ILB(1),ILB(2),ILB(3),ILB(4),ICOL,
-    # 1     IABS,E,DE,DS,X,Y,Z
-    #  ENDIF
-    #
-    #   ICOL is interaction mechanism:
-    #   For electrons (KPAR=1):
+    #   WRITE(28,'(i7,4i3,i9,2i3,6e15.7)')
+    #  1  NPARTICLE,KPAR,ILB(1),ILB(2),ILB(3),ILB(4),ICOL,
+    #  1  IABS,E,DE,DS,X,Y,Z
+
+    #   For electrons:
     #   icol = 1:  soft_event
     #   icol = 2:  hard_elastic
     #   icol = 3:  hard_inelastic
     #   icol = 4:  hard_brem
     #   icol = 5:  inner_shell_ionization
-    #   icol = 6:  not used
+    #   icol = 6:  not used for electrons
     #   icol = 7:  "delta" - not actual interactions, no energy deposited
-    #   icol = 8:  auxiallary interaction
-    #
-    #   For photons (KPAR=2):
-    #   icol = 1:  coherent (Rayleigh) scattering
-    #   icol = 2:  incoherent (Compton) scattering
-    #   icol = 3:  photoelectric absorption
-    #   icol = 4:  electron-positron pair production
-    #   icol = 6:  not used
-    #   icol = 6:  not used
-    #   icol = 7:  delta interaction
-    #   icol = 8:  auxiallary interaction
-    #
-    #   For positrons (KPAR=3):
-    #   icol = 1:  soft_event
-    #   icol = 2:  hard_elastic
-    #   icol = 3:  hard_inelastic
-    #   icol = 4:  hard_brem
-    #   icol = 5:  inner_shell_ionization
-    #   icol = 6:  annhilation
-    #   icol = 7:  "delta" - not actual interactions, no energy deposited
-    #   icol = 8:  auxiallary interaction
+    #   icol = 8:  auxiallary interaction - not used here
 
     penelope_data = {}
 
-    penelope_data['step'] = data_block[:, 0]
-    penelope_data['id'] = data_block[:, 1]
-    penelope_data['particle'] = data_block[:, 2]
-    penelope_data['generation'] = data_block[:, 3]
-    penelope_data['parent'] = data_block[:, 4]
-    penelope_data['parent_interaction'] = data_block[:, 5]
-    penelope_data['atomic_relaxation'] = data_block[:, 6]
-    penelope_data['interaction'] = data_block[:, 7]
-    penelope_data['absorbed'] = data_block[:, 8]
-    penelope_data['energy'] = data_block[:, 9] / 1000
-    penelope_data['delta_energy'] = data_block[:, 10] / 1000
-    penelope_data['delta_step'] = data_block[:, 11] * 100
-    penelope_data['r'] = data_block[:, 12:].transpose() / 100
+    penelope_data['particle_id'] = data_block[:, 0]
+    penelope_data['kpar'] = data_block[:, 1]
+    penelope_data['ilb'] = data_block[:, 2:6]
+    penelope_data['icol'] = data_block[:, 6]
+    penelope_data['absorbed'] = data_block[:, 7]
+    penelope_data['energy'] = data_block[:, 8] / 1000
+    penelope_data['delta_energy'] = data_block[:, 9] / 1000
+    penelope_data['delta_step'] = data_block[:, 10] * 100
+    penelope_data['r'] = data_block[:, 11:].transpose() / 100
+    # penelope_data['particel_age'] = data_block[:, 13]
 
-    #   For initial photons, note first interaction
-    first_interaction = 'unknown'
-    if (penelope_data['step'][0]==1) & (penelope_data['particle'][0]==2):
-        if penelope_data['interaction'][0]==2:
-            first_interaction = 'compton'
-        elif penelope_data['interaction'][0]==4:
-            first_interaction = 'pair'
+    # penelope_data['charges'] = np.fix(penelope_data['delta_energy'] / w)
+        # * (1 - read_params.materials['recombination'])
 
-    #   This is probably not a good way to do this - use step
+    #   Now Derive things
+    penelope_data['id'] = max(penelope_data['particle_id'])
+    penelope_data['generation'] = penelope_data['ilb'][:, 0]
+    penelope_data['parent'] = penelope_data['ilb'][:, 1]
+    penelope_data['interaction'] = penelope_data['ilb'][:, 2]
     penelope_data['birth_step'] \
-        = np.diff(np.insert(penelope_data['id'], 0, 0)) > 0
+        = np.diff(np.insert(penelope_data['particle_id'], 0, 0)) > 0
 
+    #   Unpack interacion code
     #   Note that hard_inelastic, hard_brem, and inner_shell_ionization
     #   do not contribute to ionization - the energy  of these I think
     #   goes to secondary particles.
+
     #   Charge generated only in soft interactions (this is debatable)
-    active_interactions = (
-        (penelope_data['interaction']==1)
+    active_interactions = (penelope_data['icol']==1) \
         & (penelope_data['delta_energy'] > w)
-        & ~((penelope_data['particle']==3) & (penelope_data['absorbed']==1))
-        )
     num_e = np.round(np.fix(
         penelope_data['delta_energy']
         / w * (1 - read_params.material['recombination'])
         ) * active_interactions).astype(int)
     deposits_mask = num_e>0
     num_e = num_e[deposits_mask]
+
 
     #   Number of charges at each site is num_e from above
     r = penelope_data['r'][:, deposits_mask]
@@ -408,12 +386,20 @@ def parse_penelope_file(
         r = (r.transpose() - center).transpose()
         origin += -center
 
+    #   Compress
+    if not compression_bin_size==None and compression_bin_size>0:
+        r, num_e = tracks_tools.compress_track(
+            r,
+            num_e,
+            compression_bin_size
+            )
+
     #   Assign everything to track
     track = {}
 
     track['r'] = r
     track['num_e'] = num_e
-    track['particle'] = penelope_data['particle'][deposits_mask]
+    track['particle'] = penelope_data['kpar'][deposits_mask]
     track['generation'] = penelope_data['generation'][deposits_mask]
     track['parent'] = penelope_data['parent'][deposits_mask]
     track['interaction'] = penelope_data['interaction'][deposits_mask]
@@ -423,7 +409,6 @@ def parse_penelope_file(
 
     track['truth']['origin'] = origin
     track['truth']['initial_direction'] = initial_direction
-    track['truth']['first_interaction'] = first_interaction
 
     #   Energy and charge
     track['truth']['num_electrons'] = np.sum(num_e)
