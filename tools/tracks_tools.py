@@ -87,7 +87,8 @@ class Tracks():
 
     def compress(self, scale=200e-6, compressed=False):
         """  Compresses raw to compressed_track, by hierarchical
-        3d binning, to a bin size set by scale """
+        3d binning, to a bin size set by scale.  If compressed==True,
+        further compresses already compressed data, if it exists."""
 
         #   Use compressed data if available and requested
         if (compressed and hasattr(self, 'compressed')) \
@@ -249,8 +250,6 @@ class Tracks():
         self.read_params.calculate()
 
         #   Apply drift
-        if depth<0:
-            sys.exit('ERROR: depth must be >= 0')
         self.apply_drift(depth=depth, compressed=compressed)
 
         #   GAMPix for GammaTPC
@@ -422,7 +421,7 @@ def load_track(full_file_name, read_raw=True, read_compressed=True):
     import numpy as np
 
     #   If file ends with .c, strip this off
-    if len(full_file_name.split('.c'))>1:
+    if '.c' in full_file_name:
         full_file_name = full_file_name.split('.c')[0]
 
     #   Read raw track, if it exists

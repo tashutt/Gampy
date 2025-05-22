@@ -517,7 +517,7 @@ def pentracks_in_file_image(energy,
     energy_settings['wcr'] = []
     energy_settings['timelimit'] = []
 
-    energy_settings['max_energy'].append(10001)
+    energy_settings['max_energy'].append(100001)
     energy_settings['eabs'].append(50)
     energy_settings['c1'].append(0.01)
     energy_settings['c2'].append(0.01)
@@ -552,8 +552,7 @@ def pentracks_in_file_image(energy,
         energy <= np.array(energy_settings['max_energy'])
         ).nonzero()[0][0]
 
-    nl = 0
-    for line in penelope_in:
+    for nl, line in enumerate(penelope_in):
 
         #   Primary particle
         if line[0:6].strip()=='SKPAR':
@@ -586,8 +585,8 @@ def pentracks_in_file_image(energy,
                 + f'{energy_settings["eabs"][nei]:0.0f} '
                 + f'{energy_settings["eabs"][nei]:0.0f} '
                 + f'{energy_settings["eabs"][nei]:0.0f} '
-                + f'{energy_settings["c1"][nei]:0.0f} '
-                + f'{energy_settings["c2"][nei]:0.0f} '
+                + f'{energy_settings["c1"][nei]:0.3f} '
+                + f'{energy_settings["c2"][nei]:0.3f} '
                 + f'{energy_settings["wcc"][nei]:0.0f} '
                 + f'{energy_settings["wcr"][nei]:0.0f}'
                 ).ljust(line.find('[')) + line[line.find('['):]
@@ -601,8 +600,6 @@ def pentracks_in_file_image(energy,
                 f'RSEED  {iseed1:0.0f} '
                 + f'{iseed2:0.0f} '
                 ).ljust(line.find('[')) + line[line.find('['):]
-
-        nl += 1
 
     return penelope_in
 
@@ -668,7 +665,7 @@ def default_pentracks_in_file():
        'MFNAME LAr.mat                         [Material file, up to 20 chars]'
         )
     base_file.append(
-        'MSIMPA 50 50 50 0.01 0.01 100 100                 '
+        'MSIMPA 50 50 50 0.010 0.010 100 100               '
         + '[EABS(1:3),C1,C2,WCC,WCR]'
         )
     base_file.append(
