@@ -67,7 +67,7 @@ def apply_detector_response(events):
     from numpy.random import randn
     import copy
 
-    import sims_tools
+    from tools import sims_tools
 
     print('Applying detector response')
 
@@ -481,6 +481,9 @@ def deviation(energy, drift):
     1/k is a measure of uncertanty (rad)
     """
 
+    # cap energy at 2000
+    energy = np.where(energy>2000, 2000, energy)
+
     dk_denergy = -44/700
     dk_dz_dE   = -1e2
     a = np.where(energy<300,
@@ -488,7 +491,7 @@ def deviation(energy, drift):
                 (energy-300) * (dk_denergy
                                 + dk_dz_dE*(0.05-drift)/(energy-290)))
     return np.where(a>0, np.nan, a)
-
+    
 def angle_error(energy, drift):
     import numpy as np
     from scipy.stats import expon

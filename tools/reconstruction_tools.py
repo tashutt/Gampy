@@ -1,7 +1,7 @@
 from itertools import permutations
 import numpy as np
 import awkward as ak
-# from tqdm import tqdm
+from tqdm import tqdm
 import pandas as pd
 
 
@@ -99,6 +99,7 @@ def reconstruct(events,
                 IN_VECTOR = None,
                 use_truth_hits=False,
                 outside_mask=None,
+                ckd_depth=3,
                 MIN_ENERGY=0.1,
                 filename=''):
 
@@ -112,7 +113,7 @@ def reconstruct(events,
         outside_mask = ((np.sum(events_to_reconstruct['energy'], axis=1)
                          + events_to_reconstruct['calorimeter_energy']) > MIN_ENERGY)
 
-    CKD_DEPTH = 2
+    CKD_DEPTH = ckd_depth
     data = {}
     for hit_len in LEN_OF_CKD_HITS:
         data[hit_len] = {}
@@ -140,6 +141,8 @@ def reconstruct(events,
 
         for p,permutation in tqdm(enumerate(PERMUTATIONS), desc=f"Scatter {hit_len}"):
             cumulative_energies = np.cumsum(energies[:,list(permutation)],axis=1)
+            if len(cumulative_energies) == 0:
+                continue
             for i in range(hit_len_prime - 2):
                 r1_r2 = positions[:,:,permutation[i+1]] - positions[:,:,permutation[i]]
                 r2_r3 = positions[:,:,permutation[i+2]] - positions[:,:,permutation[i+1]]

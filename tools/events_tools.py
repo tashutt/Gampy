@@ -45,9 +45,9 @@ class Events:
         import os
         import sys
 
-        import file_tools
-        import sims_tools
-        import readout_tools
+        from tools import file_tools
+        from tools import sims_tools
+        from tools import readout_tools
         import awkward as ak
 
         #   Get geometry_params
@@ -125,7 +125,7 @@ class Events:
             is implemented for events
         """
 
-        import readout_tools
+        from tools import readout_tools
 
         #   Create fresh set of readout params
         self.read_params = readout_tools.Params(
@@ -143,7 +143,7 @@ class Events:
         """ Applies response defined by params to truth_hits,
         creating measure_hits """
 
-        import response_tools
+        from tools import response_tools
 
         #   Calculate cell params
         self.read_params.calculate()
@@ -255,7 +255,7 @@ class Events:
     def write_evta_file(self, paths, bad_events=[], evta_version='200'):
         """ Writes events structure into evta file """
 
-        import file_tools
+        from tools import file_tools
         file_tools.write_evta_file(self, paths, bad_events, evta_version)
         return True
 
@@ -270,16 +270,18 @@ class Events:
     # default is to use the measured hits, but if use_truth_hits is True, then
     # the truth hits are used
 
+
     def reconstruct_events(self,
                         IN_VECTOR = None,
                         LEN_OF_CKD_HITS = [3,4,5,6,7,8],
+                        ckd_depth = 3,
                         use_truth_hits=False,
                         save_name=""):
         """
         Reconstructs the events using the measured hits.
         If use_truth_hits is True, the truth hits are used instead.
         """
-        import reconstruction_tools
+        from tools import reconstruction_tools
 
         db = reconstruction_tools.reconstruct(self,
                                             LEN_OF_CKD_HITS,
@@ -287,6 +289,7 @@ class Events:
                                             use_truth_hits,
                                             outside_mask=None,
                                             MIN_ENERGY=0.1,
+                                            ckd_depth = ckd_depth,
                                             filename=save_name)
 
         self.reconstructed_data = db
@@ -298,7 +301,7 @@ class Events:
         Training is using truth data to learn (in the output),
         so it's cheating if it's used on itself [kind of]
         """
-        import reconstruction_tools
+        from tools import reconstruction_tools
 
         if database is None:
             clf = reconstruction_tools.train_classifier(
@@ -313,6 +316,7 @@ class Events:
                 plot_confusion_matrix=True
                 )
         self.classifier = clf
+
 
     def classify_reconstructed_events(self,
                                       save_name=None,
@@ -368,6 +372,7 @@ class Events:
         ########################################
 
         self.reconstructed_data = df
+
 
 def calculate_stats(
             self,
