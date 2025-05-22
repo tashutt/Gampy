@@ -455,7 +455,7 @@ class FullResponse:
         self.values.append([
             750e-6,
             750e-6,
-            30,
+            40,
             0.05,
             0.06
             ])
