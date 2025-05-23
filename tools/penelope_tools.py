@@ -22,18 +22,25 @@ def simple_penelope_track_maker(p,
     a range of energies.  Then parses these to python track object.
     Currently removes any old data.
 
-    The number of energies and numbers of tracks per energy are in steering
-
-    The tracks are parsed in python and output written in a pair of
-    a numpy (.npz) file nd pickle files, one pair per track.  Tracks from
-    each energy goes into a separate folder.
+    Steering has:
+        + energies in keV - array
+        + number of tracks at each energy - array
+        + optional simulation resolution parameters at each energy - arrays
+            eabs, wc, and cs, from which Penelopes variables are set:
+            all EABS(KPAR,M) = eabs,
+            C1 and C2 = cs,
+            WCC and WCR = wc.
+            See penelope docs ch 7 for explanation.
+        + 'folder_tag' optial tag for folder names
 
     initial_direction is a vector (array or list), or 'random'.
         Note - this assume tracks simulated in direction (0,0,1)
     reset_origin - if true, track mean is at origin (0,0,0).
     parse_penelope - see comments there
 
-    Steering has energies in keV and number of tracks at each energy
+    The tracks are parsed in python and output written in a pair of
+    a numpy (.npz) file nd pickle files, one pair per track.  Tracks from
+    each energy goes into a separate folder.
 
     Output is mks
 
@@ -47,6 +54,7 @@ def simple_penelope_track_maker(p,
     """
     import numpy as np
     import os
+    import sys
     import glob
     from datetime import datetime
 
@@ -67,19 +75,15 @@ def simple_penelope_track_maker(p,
     import readout_tools
     read_params = readout_tools.Params()
 
-    #   Particles. 1=electron, 2=photon, 3=positron
-    #   Set to electrons if missing
+    #   Particles are electrons by default.  Penelope particle ids are
+    #   1=electron, 2=photon, 3=positron
     if not 'particles' in steering:
-        particles = 1
+        particles = 'electrons'
     else:
         particles = steering['particles']
-
-    if particles==1:
-        ptag = 'electrons'
-    if particles==2:
-        ptag = 'photons'
-    if particles==3:
-        ptag = 'positrons'
+    if (particles!='photons') and (particles!='electrons') \
+        and (particles!='positrons'):
+            sys.exit('Unrecognized particles definition')
     particle_ids = {'electrons': 1, 'photons': 2, 'positrons': 3}
 
     #   Prep and check folders
@@ -87,8 +91,13 @@ def simple_penelope_track_maker(p,
         os.mkdir(p['output'])
 
     if not os.path.isdir(p['executable']):
-        print('*** Error: No executable folder ***')
-        exit()
+        sys.exit('No executable folder')
+
+    #   folder tag if supplied
+    if not 'folder_tag' in steering:
+        folder_tag = ''
+    else:
+        folder_tag = '_' + steering['folder_tag']
 
     #%%  Simulate - loop through energies
 
@@ -102,10 +111,10 @@ def simple_penelope_track_maker(p,
         p0 = os.path.join(p['output'], material)
         if not os.path.isdir(p0):
             os.mkdir(p0)
-        p1 = os.path.join(p0, ptag)
+        p1 = os.path.join(p0, particles)
         if not os.path.isdir(p1):
             os.mkdir(p1)
-        p2 = os.path.join(p1, etag)
+        p2 = os.path.join(p1, etag + folder_tag)
         if os.path.isdir(p2):
             os.chdir(p2)
             if wipe_folders:
@@ -115,7 +124,7 @@ def simple_penelope_track_maker(p,
             os.mkdir(p2)
 
         #   Blab
-        print(f'E = {energy} keV ' + ptag + ', '
+        print(f'E = {energy} keV ' + particles + ', '
               + str(steering['num_tracks'][ne]) + ' tracks '
               + 'in ' + material)
 
@@ -157,14 +166,31 @@ def simple_penelope_track_maker(p,
             print('\r   bunch ' + str(nb+1) + '/' + str(num_bunches) \
                 + ' of ' + str(num_penelope_tracks) + ' tracks', end='')
 
+            #   Deal with optional simulation resolution parameters
+            if 'eabs' in steering:
+                eabs = steering['eabs'][ne]
+            else:
+                eabs = False
+            if 'cs' in steering:
+                cs = steering['cs'][ne]
+            else:
+                cs = False
+            if 'wcs' in steering:
+                wcs = steering['wcs'][ne]
+            else:
+                wcs = False
+
             #   Create pentracks.in in the data folder, specifying
-            #   energies and number of tracks
+            #   energies, number of tracks, settings
             penelope_in_image = pentracks_in_file_image(
                 energy,
                 particles,
                 material,
                 num_penelope_tracks,
-                fresh_seed
+                fresh_seed,
+                cs,
+                wcs,
+                eabs,
                 )
             with open(
                     os.path.join(p2, 'pentracks.in'),
@@ -190,7 +216,6 @@ def simple_penelope_track_maker(p,
 
                 #   Parse file
                 track = parse_penelope_file(
-                    p2,
                     full_file_name,
                     read_params,
                     initial_direction=initial_direction,
@@ -224,7 +249,6 @@ def simple_penelope_track_maker(p,
         os.system('rm pentracks')
 
 def parse_penelope_file(
-        p_data,
         full_file_name,
         read_params,
         initial_direction=[0, 0, -1],
@@ -263,11 +287,10 @@ def parse_penelope_file(
     import os
     import sys
 
-    import tracks_tools
     import math_tools
 
     #   Get penelope settings from penelope_in file
-    penelope_input = parse_penelope_in(p_data)
+    penelope_input = parse_penelope_in(os.path.split(full_file_name)[0])
 
     #   define w
     #   Fudge was some early rough kludge; should be revisited. Also,
@@ -278,8 +301,7 @@ def parse_penelope_file(
 
     # print('\r  file  ' + str(nf) + ' ', end='')
 
-    file_name = full_file_name.split(os.path.sep)[-1]
-    with open(os.path.join(p_data, file_name)) as file:
+    with open(full_file_name) as file:
         lines = file.readlines()
 
     #   First line blank, next is simulation time
@@ -498,66 +520,82 @@ def parse_penelope_in(p):
     return penelope_input
 
 def pentracks_in_file_image(energy,
-                            particles=1,
+                            particles='electrons',
                             material='LAr',
                             num_tracks=1000,
-                            fresh_seed=True
+                            fresh_seed=True,
+                            cs=False,
+                            wcs=False,
+                            eabs=False,
                             ):
     """ return pentrack.in file as image, for energy and num_tracks """
 
     import numpy as np
 
-    #   Energy dependent penelope settings
-    energy_settings = {}
-    energy_settings['max_energy'] = []  # keV - upper energy for this set
-    energy_settings['eabs'] = []
-    energy_settings['c1'] = []
-    energy_settings['c2'] = []
-    energy_settings['wcc'] = []
-    energy_settings['wcr'] = []
-    energy_settings['timelimit'] = []
+    #   These are energy dependent settings
+    settings = {}
+    settings['max_energy'] = []  # keV - upper energy for this set
+    settings['eabs'] = []
+    settings['c1'] = []
+    settings['c2'] = []
+    settings['wcc'] = []
+    settings['wcr'] = []
 
-    energy_settings['max_energy'].append(100001)
-    energy_settings['eabs'].append(50)
-    energy_settings['c1'].append(0.01)
-    energy_settings['c2'].append(0.01)
-    energy_settings['wcc'].append(50)
-    energy_settings['wcr'].append(50)
-    energy_settings['timelimit'].append(12000)
+    settings['max_energy'].append(10000.1)
+    settings['eabs'].append(50)
+    settings['c1'].append(0.01)
+    settings['c2'].append(0.01)
+    settings['wcc'].append(50)
+    settings['wcr'].append(50)
 
-    energy_settings['max_energy'].append(int(1.001e5))
-    energy_settings['eabs'].append(1000)
-    energy_settings['c1'].append(0.02)
-    energy_settings['c2'].append(0.02)
-    energy_settings['wcc'].append(1000)
-    energy_settings['wcr'].append(1000)
-    energy_settings['timelimit'].append(12000)
+    settings['max_energy'].append(int(1.001e5))
+    settings['eabs'].append(1000)
+    settings['c1'].append(0.02)
+    settings['c2'].append(0.02)
+    settings['wcc'].append(1000)
+    settings['wcr'].append(1000)
 
-    energy_settings['max_energy'].append(int(1.0001e6))
-    energy_settings['eabs'].append(5000)
-    energy_settings['c1'].append(0.02)
-    energy_settings['c2'].append(0.02)
-    energy_settings['wcc'].append(5000)
-    energy_settings['wcr'].append(5000)
-    energy_settings['timelimit'].append(12000)
+    settings['max_energy'].append(int(1.0001e6))
+    settings['eabs'].append(5000)
+    settings['c1'].append(0.02)
+    settings['c2'].append(0.02)
+    settings['wcc'].append(5000)
+    settings['wcr'].append(5000)
+
+    #   Find settings to use, overulling defaults if supplied
+    nei = np.asarray(
+        energy <= np.array(settings['max_energy'])
+        ).nonzero()[0][0]
+    if not eabs:
+        eabs = settings['eabs'][nei]
+    if not cs:
+        c1 = settings['c1'][nei]
+        c2 = settings['c2'][nei]
+    else:
+        c1 = cs
+        c2 = cs
+    if not wcs:
+        wcc = settings['wcc'][nei]
+        wcr = settings['wcr'][nei]
+    else:
+        wcc = wcs
+        wcr = wcs
+
+    #   Penelope uses particle IDs
+    particle_ids = {'electrons': 1, 'photons': 2, 'positrons': 3}
+    particles_id = particle_ids[particles]
 
     #   Create new penelope.in file with these settings
 
     #   Initial default pentrack_in file image
     penelope_in = default_pentracks_in_file()
 
-    #   This is index of the relevant energy settings - the lowest energy
-    #   set
-    nei = np.asarray(
-        energy <= np.array(energy_settings['max_energy'])
-        ).nonzero()[0][0]
-
     for nl, line in enumerate(penelope_in):
 
         #   Primary particle
         if line[0:6].strip()=='SKPAR':
             penelope_in[nl] = (
-                f'SKPAR  {particles:d}'
+                f'SKPAR  {particles_id:d}'
                 ).ljust(line.find('[')) + line[line.find('['):]
 
         #   Track energy
@@ -582,13 +620,13 @@ def pentracks_in_file_image(energy,
         if line[0:6].strip()=='MSIMPA':
             new_line = (
                 'MSIMPA '
-                + f'{energy_settings["eabs"][nei]:0.0f} '
-                + f'{energy_settings["eabs"][nei]:0.0f} '
-                + f'{energy_settings["eabs"][nei]:0.0f} '
-                + f'{energy_settings["c1"][nei]:0.3f} '
-                + f'{energy_settings["c2"][nei]:0.3f} '
-                + f'{energy_settings["wcc"][nei]:0.0f} '
-                + f'{energy_settings["wcr"][nei]:0.0f}'
+                + f'{eabs:0.0f} '
+                + f'{eabs:0.0f} '
+                + f'{eabs:0.0f} '
+                + f'{c1:0.3f} '
+                + f'{c2:0.3f} '
+                + f'{wcc:0.3f} '
+                + f'{wcr:0.3f}'
                 ).ljust(line.find('[')) + line[line.find('['):]
             penelope_in[nl] = new_line[0:len(line)]
 

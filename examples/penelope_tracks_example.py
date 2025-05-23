@@ -26,26 +26,25 @@ import numpy as np
 
 steering = {}
 
-steering['particles'] =  2
+steering['particles'] = 'photons'
 steering['material'] =  'LAr'
+
+steering['folder_tag'] = 'lol'
 
 # steering ['energies'] \
 #     =  np.array([100, 200, 500, 1000, 2000, 5000, 10000], dtype=float)
 # steering ['num_tracks'] \
 #     =  np.array([2000, 2000, 2000, 1000, 1000, 500, 500], dtype=int)
 
-steering ['energies'] =  np.array([10000], dtype=float)
-steering ['num_tracks'] \
-    = np.ones_like(steering ['energies'], dtype=int) * int(4000)
+# steering ['energies'] =   np.array([100,   200,  500, 1000, 2000, 5000], dtype=float)
+# steering ['num_tracks'] = int(1e4) * np.ones_like(steering ['energies'], dtype=int)
+# steering ['num_tracks'] = np.array([6000, 6000, 6000, 8000, 8000, 9000], dtype=int)
 
-# steering ['energies'] = np.array([10000, 20000, 50000, 100000], dtype=float)
-# steering ['num_tracks'] \
-#       = np.ones_like(steering ['energies'], dtype=int) * int(1e4)
-
-#   Use this for big tracks, otherwise omit.
-compress = True
-compression_scale = 30e-6
-delete_raw = True
+steering['energies'] =   np.array([1500], dtype=float)
+steering['num_tracks'] = int(10) * np.ones_like(steering ['energies'], dtype=int)
+# steering['eabs'] = np.tile(75, steering['energies'].size)
+# steering['cs'] = np.tile(.02, steering['energies'].size)
+# steering['wcs'] = np.tile(75, steering['energies'].size)
 
 #   Paths
 p={}
@@ -59,7 +58,7 @@ penelope_tools.simple_penelope_track_maker(
     p,
     steering,
     initial_direction='random',
-    wipe_folders=False,
+    wipe_folders=True,
     reset_origin=False,
     fresh_seed=True,
     delete_penelope_data=True,

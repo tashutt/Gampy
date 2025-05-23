@@ -122,7 +122,7 @@ def get_params_inputs(inputs_source='gomega_defaults', cell_geometry=None):
     if inputs_source == 'gomega_defaults':
         inputs_source = os.path.join(
             os.path.dirname(os.path.split(__file__)[0]),
-            'inputs',
+            'default_inputs',
             'default_sims_inputs.yaml'
             )
 

@@ -435,7 +435,7 @@ def get_params_inputs(
     if inputs_file_name == 'default':
         inputs_file_name = os.path.join(
             os.path.dirname(os.path.split(__file__)[0]),
-            'inputs',
+            'default_inputs',
             'default_readout_inputs.yaml'
             )
 
