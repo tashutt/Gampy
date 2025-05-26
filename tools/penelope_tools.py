@@ -10,33 +10,34 @@ March 23, split this off from tracks_tools
 @author: tshutt
 """
 def simple_penelope_track_maker(p,
-                        steering,
-                        delete_penelope_data=True,
-                        initial_direction=[0, 0, -1],
-                        reset_origin=True,
-                        wipe_folders=False,
-                        fresh_seed=True,
-                        ):
+                                steering,
+                                delete_penelope_data=True,
+                                initial_direction=[0, 0, -1],
+                                reset_origin=True,
+                                wipe_folders=False,
+                                fresh_seed=True,
+                                full_output=False,
+                                ):
     """
     Runs Penelope to create electron tracks in a single material, over
     a range of energies.  Then parses these to python track object.
-    Currently removes any old data.
 
-    Steering has:
-        + energies in keV - array
-        + number of tracks at each energy - array
-        + optional simulation resolution parameters at each energy - arrays
-            eabs, wc, and cs, from which Penelopes variables are set:
-            all EABS(KPAR,M) = eabs,
-            C1 and C2 = cs,
-            WCC and WCR = wc.
-            See penelope docs ch 7 for explanation.
-        + 'folder_tag' optial tag for folder names
-
-    initial_direction is a vector (array or list), or 'random'.
-        Note - this assume tracks simulated in direction (0,0,1)
+    steering - dictionary with keys:
+        particles - 'photons', 'electrons', or 'positrons'
+        material - 'LAr' or 'Lxe'
+        energies -  scalar or list, in keV
+        num_tracks - scalar or list for each energy in energies
+        eabs - (optional) scalar or list, assigned to all EABS(KPAR,M)
+        c - (optional) scalar or list, assigned to C1 and C2
+        wc = (optional) ascalar or list, assigned to WCC and WCR
+        'folder_tag' - (optional) for all folders from this simluation run
+    initial_direction:
+        vector (array or list) - this becomes initial direction
+            This assume tracks simulated in direction (0,0,1)
+        'random' - initial direction chosen randomly over 4 pi
+        None - keeps direction from sims (should be (0,0,1))
     reset_origin - if true, track mean is at origin (0,0,0).
-    parse_penelope - see comments there
+    fresh_seed - if False, then sim runs start with same RNG seed
 
     The tracks are parsed in python and output written in a pair of
     a numpy (.npz) file nd pickle files, one pair per track.  Tracks from
@@ -86,6 +87,40 @@ def simple_penelope_track_maker(p,
             sys.exit('Unrecognized particles definition')
     particle_ids = {'electrons': 1, 'photons': 2, 'positrons': 3}
 
+    #   Unpack eneriges and number of traks
+    if type(steering['energies']) is list:
+        energies = steering['energies']
+    else:
+        energies = [steering['energies']]
+    if type(steering['num_tracks']) is list:
+        num_trackss = steering['num_tracks']
+    else:
+        num_trackss = [steering['num_tracks']] * len(energies)
+
+    #   Deal with optional simulation resolution parameters
+    if 'eabs' in steering:
+        if type(steering['eabs']) is list:
+            eabss = steering['eabs']
+        else:
+            eabss = [steering['eabs']]
+    else:
+        eabss = [False] * len(energies)
+    if 'c' in steering:
+        if type(steering['c']) is list:
+            cs = steering['c']
+        else:
+            cs = [steering['c']]
+    else:
+        cs = [False] * len(energies)
+    if 'wc' in steering:
+        if type(steering['wc']) is list:
+            wcs = steering['wc']
+        else:
+            wcs = [steering['wc']]
+    else:
+        wcs = [False] * len(energies)
+
+
     #   Prep and check folders
     if not os.path.isdir(p['output']):
         os.mkdir(p['output'])
@@ -94,14 +129,14 @@ def simple_penelope_track_maker(p,
         sys.exit('No executable folder')
 
     #   folder tag if supplied
-    if not 'folder_tag' in steering:
+    if (not 'folder_tag' in steering) or (steering['folder_tag']==''):
         folder_tag = ''
     else:
         folder_tag = '_' + steering['folder_tag']
 
     #%%  Simulate - loop through energies
 
-    for ne, energy in enumerate(steering['energies']):
+    for ne, energy in enumerate(energies):
 
         #   Output folders.  Order is  material / particles /energy.
         #   Create as needed, and can wipe.
@@ -124,18 +159,17 @@ def simple_penelope_track_maker(p,
             os.mkdir(p2)
 
         #   Blab
-        print(f'E = {energy} keV ' + particles + ', '
-              + str(steering['num_tracks'][ne]) + ' tracks '
-              + 'in ' + material)
+        print(f'E = {energy} keV ' + particles + f', {num_trackss[ne]:d}'
+              + ' tracks in ' + material)
 
         #   These control looping over calls to penelope
         num_full_bunches = np.fix(
-            steering['num_tracks'][ne] / max_num_tracks_batch
+            num_trackss[ne] / max_num_tracks_batch
             ).astype(int)
         num_bunches = num_full_bunches
-        if (steering['num_tracks'][ne] % max_num_tracks_batch) > 0:
+        if (num_trackss[ne] % max_num_tracks_batch) > 0:
             last_bunch_size \
-                = steering['num_tracks'][ne] % max_num_tracks_batch
+                = num_trackss[ne] % max_num_tracks_batch
             num_bunches += 1
         else:
             last_bunch_size = max_num_tracks_batch
@@ -166,20 +200,6 @@ def simple_penelope_track_maker(p,
             print('\r   bunch ' + str(nb+1) + '/' + str(num_bunches) \
                 + ' of ' + str(num_penelope_tracks) + ' tracks', end='')
 
-            #   Deal with optional simulation resolution parameters
-            if 'eabs' in steering:
-                eabs = steering['eabs'][ne]
-            else:
-                eabs = False
-            if 'cs' in steering:
-                cs = steering['cs'][ne]
-            else:
-                cs = False
-            if 'wcs' in steering:
-                wcs = steering['wcs'][ne]
-            else:
-                wcs = False
-
             #   Create pentracks.in in the data folder, specifying
             #   energies, number of tracks, settings
             penelope_in_image = pentracks_in_file_image(
@@ -188,9 +208,9 @@ def simple_penelope_track_maker(p,
                 material,
                 num_penelope_tracks,
                 fresh_seed,
-                cs,
-                wcs,
-                eabs,
+                cs[ne],
+                wcs[ne],
+                eabss[ne],
                 )
             with open(
                     os.path.join(p2, 'pentracks.in'),
@@ -220,6 +240,7 @@ def simple_penelope_track_maker(p,
                     read_params,
                     initial_direction=initial_direction,
                     reset_origin=reset_origin,
+                    full_output=full_output,
                     )
 
                 #   Save meta data
@@ -227,7 +248,6 @@ def simple_penelope_track_maker(p,
                 track['meta']['initial_particle'] = particles
                 track['meta']['energy'] = energy
                 track['meta']['particle_ids'] = particle_ids
-
 
                 #  Save penelope_tracks
                 file_name = full_file_name.split(os.path.sep)[-1]
@@ -253,6 +273,7 @@ def parse_penelope_file(
         read_params,
         initial_direction=[0, 0, -1],
         reset_origin=True,
+        full_output=False,
         ):
     """
     Reads Penelope output track files in folder p_data, parses them to create
@@ -260,13 +281,13 @@ def parse_penelope_file(
         Works on set of files of same energy in single folder.  Each file,
         input and output, is a single track.
 
-    initial_direction is a vector (array or list), or 'random'.
-        Note - this assume tracks simulated in direction (0,0,1)
-
+    initial_direction:
+        vector (array or list) - this becomes initial direction
+            This assume tracks simulated in direction (0,0,1)
+        'random' - initial direction chosen randomly over 4 pi
+        None - keeps direction from sims (should be (0,0,1))
     reset_origin - if true, translates track so that the mean is at
-    origin (0,0,0).  This translation is applied after the track is
-    rotated (if it is rotated).
-
+        origin (0,0,0).  Applied after any rotation.
 
     The number of charges generated by Penelope is somewhat off, and a
     crude correction factor which needs more careful study is hard
@@ -323,6 +344,9 @@ def parse_penelope_file(
     # 1     IABS,E,DE,DS,X,Y,Z
     #  ENDIF
     #
+    #   note: NPARTICLE is a sequential counter for each particle, staring
+    #       at 1 for the initial particle
+    #
     #   ICOL is interaction mechanism:
     #   For electrons (KPAR=1):
     #   icol = 1:  soft_event
@@ -339,7 +363,7 @@ def parse_penelope_file(
     #   icol = 2:  incoherent (Compton) scattering
     #   icol = 3:  photoelectric absorption
     #   icol = 4:  electron-positron pair production
-    #   icol = 6:  not used
+    #   icol = 5:  not used
     #   icol = 6:  not used
     #   icol = 7:  delta interaction
     #   icol = 8:  auxiallary interaction
@@ -354,75 +378,90 @@ def parse_penelope_file(
     #   icol = 7:  "delta" - not actual interactions, no energy deposited
     #   icol = 8:  auxiallary interaction
 
-    penelope_data = {}
+    #   Assign values
+    step = data_block[:, 0].astype(int)
+    particle_id = data_block[:, 2].astype(int)
+    interaction = data_block[:, 7].astype(int)
+    absorbed = data_block[:, 8].astype(int)
+    delta_energy = data_block[:, 10] / 1000
+    delta_step = data_block[:, 11] * 100
+    r = data_block[:, 12:].transpose() / 100
 
-    penelope_data['step'] = data_block[:, 0]
-    penelope_data['id'] = data_block[:, 1]
-    penelope_data['particle'] = data_block[:, 2]
-    penelope_data['generation'] = data_block[:, 3]
-    penelope_data['parent'] = data_block[:, 4]
-    penelope_data['parent_interaction'] = data_block[:, 5]
-    penelope_data['atomic_relaxation'] = data_block[:, 6]
-    penelope_data['interaction'] = data_block[:, 7]
-    penelope_data['absorbed'] = data_block[:, 8]
-    penelope_data['energy'] = data_block[:, 9] / 1000
-    penelope_data['delta_energy'] = data_block[:, 10] / 1000
-    penelope_data['delta_step'] = data_block[:, 11] * 100
-    penelope_data['r'] = data_block[:, 12:].transpose() / 100
+    if full_output:
+        particle_num = data_block[:, 1].astype(int)
+        energy = data_block[:, 9] / 1000
+        atomic_relaxation = data_block[:, 6].astype(int)
+        generation = data_block[:, 3].astype(int)
+        parent = data_block[:, 4].astype(int)
+        parent_interaction = data_block[:, 5].astype(int)
 
-    #   For initial photons, note first interaction
-    first_interaction = 'unknown'
-    if (penelope_data['step'][0]==1) & (penelope_data['particle'][0]==2):
-        if penelope_data['interaction'][0]==2:
+    #   These are important interactions
+    brem = ((particle_id==1) | (particle_id==3)) & (interaction==4)
+    photo = (particle_id==2) & (interaction==3)
+    compton = (particle_id==2) & (interaction==2)
+    pair = (particle_id==2)& (interaction==4)
+
+    #   First interactions of photons.
+    first_interaction = 'n/a'
+    if penelope_input['initial_particle']=='photon':
+        if interaction[0]==2:
             first_interaction = 'compton'
-        elif penelope_data['interaction'][0]==4:
+        elif interaction[0]==4:
             first_interaction = 'pair'
-
-    #   This is probably not a good way to do this - use step
-    penelope_data['birth_step'] \
-        = np.diff(np.insert(penelope_data['id'], 0, 0)) > 0
 
     #   Note that hard_inelastic, hard_brem, and inner_shell_ionization
     #   do not contribute to ionization - the energy  of these I think
     #   goes to secondary particles.
     #   Charge generated only in soft interactions (this is debatable)
     active_interactions = (
-        (penelope_data['interaction']==1)
-        & (penelope_data['delta_energy'] > w)
-        & ~((penelope_data['particle']==3) & (penelope_data['absorbed']==1))
+        (interaction==1)
+        & (delta_energy > w)
+        & ~((particle_id==3) & (absorbed==1))
         )
     num_e = np.round(np.fix(
-        penelope_data['delta_energy']
+        delta_energy
         / w * (1 - read_params.material['recombination'])
         ) * active_interactions).astype(int)
     deposits_mask = num_e>0
-    num_e = num_e[deposits_mask]
 
-    #   Number of charges at each site is num_e from above
-    r = penelope_data['r'][:, deposits_mask]
-
-    #   Origin and initial diretion are from Penelope input
-    origin = penelope_input['r_o'] / 100
+    #   Initial diretion from Penelope input
     penelope_direction = penelope_input['s_o']
 
-    #   Track initial directions
-    if isinstance(initial_direction, str):
-        if initial_direction!='random':
-            sys.exit('Error in parse_penelope_file: bad initial_direction')
+    #   This didn't accomoplish what was intended. Keep for reference.
+    # birth_step = np.diff(np.insert(particle_num, 0, 0)) > 0
 
-        #   generate unit vector with random direction in 4pi
-        rng = np.random.default_rng()
-        theta = np.arccos(1 - 2 * rng.random(1))
-        phi = 2 * pi * rng.random(1)
-        s = math_tools.sph2cart(theta, phi)
+    #   Track initial direction
 
-    #   Rotate to specified directions
+    #   check for bad input
+    if (isinstance(initial_direction, str)) & (initial_direction!='random'):
+        sys.exit('Error in parse_penelope_file: bad initial_direction')
+
+    if not initial_direction:
+        initial_direction = penelope_direction
+
     else:
-        s = np.array(initial_direction)
 
-    #   Rotate track, initial vector
-    r = math_tools.rotate_ray(r, s)
-    initial_direction = math_tools.rotate_ray(penelope_direction, s)
+        #   Random
+        if initial_direction=='random':
+            #   generate unit vector with random direction in 4pi
+            rng = np.random.default_rng()
+            theta = np.arccos(1 - 2 * rng.random(1))
+            phi = 2 * pi * rng.random(1)
+            s = math_tools.sph2cart(theta, phi)
+        #   Rotate to specified directions
+        else:
+            s = np.array(initial_direction)
+
+        #   Rotate track, initial vector
+        r = math_tools.rotate_ray(r, s)
+        initial_direction = math_tools.rotate_ray(penelope_direction, s)
+
+    #   Origin is from Penelope input unless a photon. Then is first step
+    #   location
+    if penelope_input['initial_particle']=='photon':
+        origin = r[:, 0].T
+    else:
+        origin = penelope_input['r_o'] / 100
 
     #   Center track on mean
     if reset_origin:
@@ -430,29 +469,53 @@ def parse_penelope_file(
         r = (r.transpose() - center).transpose()
         origin += -center
 
+
     #   Assign everything to track
     track = {}
 
-    track['r'] = r
-    track['num_e'] = num_e
-    track['particle'] = penelope_data['particle'][deposits_mask]
-    track['generation'] = penelope_data['generation'][deposits_mask]
-    track['parent'] = penelope_data['parent'][deposits_mask]
-    track['interaction'] = penelope_data['interaction'][deposits_mask]
-    track['birth_step'] = penelope_data['birth_step'][deposits_mask]
+    if full_output:
+        track['particle_id'] = particle_id[deposits_mask]
+        track['interaction'] = interaction[deposits_mask]
+        track['deposits'] = deposits_mask
+        track['parent_interaction'] = parent_interaction
+        track['atomic_relaxation'] = atomic_relaxation
+        track['absorbed'] = absorbed
+        track['energy'] = energy
+        track['delta_energy'] = delta_energy
+        track['delta_step'] = delta_step
+        track['particle_num'] = particle_num
+        track['parent'] = parent
+        track['generation'] = generation
 
+    #   If full output deposits_mask is null
+    if full_output:
+        deposits_mask = np.ones_like(deposits_mask, dtype=bool)
+
+    #   r, num_e
+    track['r'] = r[:, deposits_mask]
+    track['num_e'] = num_e[deposits_mask]
+
+    #   Truth
     track['truth'] = {}
+
+    track['truth']['num_electrons'] = np.sum(num_e)
+    track['truth']['track_energy'] = penelope_input['initial_energy']
 
     track['truth']['origin'] = origin
     track['truth']['initial_direction'] = initial_direction
     track['truth']['first_interaction'] = first_interaction
 
-    #   Energy and charge
-    track['truth']['num_electrons'] = np.sum(num_e)
-    track['truth']['track_energy'] \
-        = penelope_input['electron_energy']
+    track['truth']['r_brem'] = r[:, brem]
+    track['truth']['r_photo'] = r[:, photo]
+    track['truth']['r_compton'] = r[:, compton]
+    track['truth']['r_pair'] = r[:, pair]
 
-    #   Save Peneleope job meta data
+    track['truth']['energy_brem'] = delta_energy[brem]
+    track['truth']['energy_photo'] = delta_energy[photo]
+    track['truth']['energy_compton'] = delta_energy[compton]
+    track['truth']['energy_pair'] = delta_energy[pair]
+
+    #   Peneleope job meta data
     track['meta'] = {}
     track['meta']['penelope_input'] = penelope_input
     track['meta']['simulation_date'] = simulation_date
@@ -482,6 +545,15 @@ def parse_penelope_in(p):
 
             #   These are saved
 
+            if name == 'SKPAR':
+                penelope_input['initial_particle_id'] = int(values_string[0])
+                if int(values_string[0])==1:
+                    penelope_input['initial_particle'] = 'electron'
+                elif int(values_string[0])==2:
+                    penelope_input['initial_particle'] = 'photon'
+                elif int(values_string[0])==3:
+                    penelope_input['initial_particle'] = 'positron'
+
             if name == 'MSIMPA':
                 values = np.array(
                     [float(value_string)for value_string in values_string])
@@ -492,7 +564,7 @@ def parse_penelope_in(p):
                 penelope_input['wcr'] = values[6]
 
             if name == 'SENERG':
-                penelope_input['electron_energy'] \
+                penelope_input['initial_energy'] \
                     = float(values_string[0]) / 1000
 
             if name == 'SPOSIT':
@@ -524,8 +596,8 @@ def pentracks_in_file_image(energy,
                             material='LAr',
                             num_tracks=1000,
                             fresh_seed=True,
-                            cs=False,
-                            wcs=False,
+                            c=False,
+                            wc=False,
                             eabs=False,
                             ):
     """ return pentrack.in file as image, for energy and num_tracks """
@@ -568,18 +640,18 @@ def pentracks_in_file_image(energy,
         ).nonzero()[0][0]
     if not eabs:
         eabs = settings['eabs'][nei]
-    if not cs:
+    if not c:
         c1 = settings['c1'][nei]
         c2 = settings['c2'][nei]
     else:
-        c1 = cs
-        c2 = cs
-    if not wcs:
+        c1 = c
+        c2 = c
+    if not wc:
         wcc = settings['wcc'][nei]
         wcr = settings['wcr'][nei]
     else:
-        wcc = wcs
-        wcr = wcs
+        wcc = wc
+        wcr = wc
 
     #   Penelope uses particle IDs
     particle_ids = {'electrons': 1, 'photons': 2, 'positrons': 3}
@@ -625,8 +697,8 @@ def pentracks_in_file_image(energy,
                 + f'{eabs:0.0f} '
                 + f'{c1:0.3f} '
                 + f'{c2:0.3f} '
-                + f'{wcc:0.3f} '
-                + f'{wcr:0.3f}'
+                + f'{wcc:0.0f} '
+                + f'{wcr:0.0f}'
                 ).ljust(line.find('[')) + line[line.find('['):]
             penelope_in[nl] = new_line[0:len(line)]
 

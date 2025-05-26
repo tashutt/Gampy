@@ -350,11 +350,6 @@ def save_penelope_track(full_file_name, track):
         os.path.join(full_file_name + '.npz'),
         r = track['r'],
         num_e = track['num_e'],
-        particle = track['particle'],
-        generation = track['generation'],
-        parent = track['parent'],
-        interaction = track['interaction'],
-        birth_step = track['birth_step'],
         )
 
     #   truth and meta data saved as pickle
@@ -380,11 +375,6 @@ def save_track(full_file_name, track, write_raw=True, write_compressed=True):
             os.path.join(full_file_name + '.npz'),
             r = track.raw['r'],
             num_e = track.raw['num_e'],
-            particle = track.raw['particle'],
-            generation = track.raw['generation'],
-            parent = track.raw['parent'],
-            interaction = track.raw['interaction'],
-            birth_step = track.raw['birth_step'],
             )
 
     #   Save compressed track, if present
@@ -437,11 +427,6 @@ def load_track(full_file_name, read_raw=True, read_compressed=True):
             raw = {}
             raw['r'] = guts['r']
             raw['num_e'] = guts['num_e']
-            raw['generation'] = guts['generation']
-            raw['particle'] = guts['particle']
-            raw['parent'] = guts['parent']
-            raw['interaction'] = guts['interaction']
-            raw['birth_step'] = guts['birth_step']
 
     #   Read compressed track, if it exists
     compressed = None

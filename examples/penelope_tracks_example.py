@@ -29,7 +29,7 @@ steering = {}
 steering['particles'] = 'photons'
 steering['material'] =  'LAr'
 
-steering['folder_tag'] = 'lol'
+steering['folder_tag'] = ''
 
 # steering ['energies'] \
 #     =  np.array([100, 200, 500, 1000, 2000, 5000, 10000], dtype=float)
@@ -40,8 +40,8 @@ steering['folder_tag'] = 'lol'
 # steering ['num_tracks'] = int(1e4) * np.ones_like(steering ['energies'], dtype=int)
 # steering ['num_tracks'] = np.array([6000, 6000, 6000, 8000, 8000, 9000], dtype=int)
 
-steering['energies'] =   np.array([1500], dtype=float)
-steering['num_tracks'] = int(10) * np.ones_like(steering ['energies'], dtype=int)
+steering['energies'] = 30000
+steering['num_tracks'] = 10
 # steering['eabs'] = np.tile(75, steering['energies'].size)
 # steering['cs'] = np.tile(.02, steering['energies'].size)
 # steering['wcs'] = np.tile(75, steering['energies'].size)
@@ -61,6 +61,6 @@ penelope_tools.simple_penelope_track_maker(
     wipe_folders=True,
     reset_origin=False,
     fresh_seed=True,
-    delete_penelope_data=True,
+    delete_penelope_data=False,
     )
 
