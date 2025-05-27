@@ -838,3 +838,127 @@ def default_pentracks_in_file():
         )
 
     return base_file
+
+
+
+
+
+def batch_penelope_track_maker(p,
+                      steering,
+                      delete_penelope_data=True,
+                      initial_direction=[0, 0, -1],
+                      reset_origin=True,
+                      wipe_folders=False,
+                      fresh_seed=True,
+                      ):
+
+  import numpy as np
+  import os
+  import sys
+  import glob
+  from datetime import datetime
+
+  from . import tracks_tools, readout_tools
+  max_num_tracks_batch = int(steering.get('max_num_tracks_batch', 50))
+
+  material = steering.get('material', 'LAr')
+  particles = steering.get('particles', 'electrons')
+  
+  if particles not in ['photons', 'electrons', 'positrons']:
+      sys.exit('Unrecognized particles definition')
+  
+  particle_ids = {'electrons': 1, 'photons': 2, 'positrons': 3}
+  read_params = readout_tools.Params()
+  
+  os.makedirs(p['output'], exist_ok=True)
+  if not os.path.isdir(p['executable']):
+      sys.exit('No executable folder')
+
+  folder_tag = '_' + steering.get('folder_tag', '') if 'folder_tag' in steering else ''
+
+  for ne, energy in enumerate(steering['energies']):
+      etag = f'E{energy:07.0f}'
+      
+      p0 = os.path.join(p['output'], material)
+      os.makedirs(p0, exist_ok=True)
+      
+      p1 = os.path.join(p0, particles)
+      os.makedirs(p1, exist_ok=True)
+
+      central_folder = os.path.join(p1, etag)
+      os.makedirs(central_folder, exist_ok=True)
+
+      p2 = os.path.join(p1, etag + folder_tag)
+      if os.path.isdir(p2) and wipe_folders:
+          os.chdir(p2)
+          for f in glob.glob("*"):
+              os.remove(f)
+      else:
+          os.makedirs(p2, exist_ok=True)
+
+      print(f'E = {energy} keV {particles}, {steering["num_tracks"][ne]} tracks in {material}')
+
+      num_full_bunches = int(np.fix(steering['num_tracks'][ne] / max_num_tracks_batch))
+      num_bunches = num_full_bunches
+      last_bunch_size = steering['num_tracks'][ne] % max_num_tracks_batch
+      
+      if last_bunch_size > 0:
+          num_bunches += 1
+      else:
+          last_bunch_size = max_num_tracks_batch
+
+      os.system(f'cp {os.path.join(p["executable"], "pentracks")} {os.path.join(p2, "pentracks")}')
+      os.system(f'cp {os.path.join(p["executable"], material + ".mat")} {os.path.join(p2, material + ".mat")}')
+
+      for nb in range(num_bunches):
+          num_penelope_tracks = max_num_tracks_batch if nb < num_bunches-1 else last_bunch_size
+          print(f'\r   bunch {nb+1}/{num_bunches} of {num_penelope_tracks} tracks', end='')
+
+          eabs = steering.get('eabs', [False]*len(steering['energies']))[ne] if 'eabs' in steering else False
+          cs = steering.get('cs', [False]*len(steering['energies']))[ne] if 'cs' in steering else False
+          wcs = steering.get('wcs', [False]*len(steering['energies']))[ne] if 'wcs' in steering else False
+
+          penelope_in_image = pentracks_in_file_image(
+              energy, particles, material, num_penelope_tracks, fresh_seed, cs, wcs, eabs)
+              
+          with open(os.path.join(p2, 'pentracks.in'), 'w') as file:
+              for line in penelope_in_image:
+                  file.write(line + '\n')
+
+          os.chdir(p2)
+          os.system('./pentracks < pentracks.in')
+          print('   Parsing PENELOPE output to python tracks')
+
+          full_file_name_list = glob.glob(os.path.join(".", 'TrackE*.dat'))
+          print(f'   Found {len(full_file_name_list)} tracks')
+
+          for full_file_name, nf in zip(full_file_name_list, range(len(full_file_name_list))):
+              track = parse_penelope_file(
+                  full_file_name, read_params, 
+                  initial_direction=initial_direction, reset_origin=reset_origin)
+
+              track['meta'].update({
+                  'material': material,
+                  'initial_particle': particles,
+                  'energy': energy,
+                  'particle_ids': particle_ids
+              })
+
+              file_name = os.path.basename(full_file_name)
+              out_file_name = f"{file_name.split('_')[0]}_{datetime.now().strftime('D%Y%m%d_T%H%M%f')}"
+              tracks_tools.save_penelope_track(os.path.join(".", out_file_name), track)
+
+              if delete_penelope_data:
+                  os.remove(full_file_name)
+                  
+          print('   Done parsing PENELOPE output')
+
+          for ext in ['*.npz', '*.pickle']:
+              for file in glob.glob(ext):
+                  os.rename(file, os.path.join("..", etag, os.path.basename(file)))
+
+          cur_dir = os.getcwd()
+          os.chdir('..')
+          os.system('rm -rf ' + cur_dir)
+              
+      os.system('rm pentracks')
