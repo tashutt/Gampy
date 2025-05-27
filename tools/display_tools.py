@@ -38,7 +38,7 @@ def display_track(track,
     import numpy as np
     import matplotlib.pyplot as plt
 
-    import tracks_tools
+    from . import tracks_tools
 
     #   Prep variable to plot initial vector
     def prep_s(s, origin, scale):
