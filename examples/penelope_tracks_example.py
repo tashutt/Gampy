@@ -41,10 +41,10 @@ steering['folder_tag'] = ''
 # steering ['num_tracks'] = np.array([6000, 6000, 6000, 8000, 8000, 9000], dtype=int)
 
 steering['energies'] = 1500
-steering['num_tracks'] = 10
-# steering['eabs'] = np.tile(75, steering['energies'].size)
-# steering['cs'] = np.tile(.02, steering['energies'].size)
-# steering['wcs'] = np.tile(75, steering['energies'].size)
+steering['num_tracks'] = 1
+steering['eabs'] = 200
+steering['cs'] = 0.01
+steering['wcs'] = 200
 
 #   Paths
 p={}

@@ -26,13 +26,10 @@ class Tracks():
         import readout_tools
 
         #   Read track
-        raw, compressed, truth, meta  = load_track(track_file_name)
+        raw, truth, meta  = load_track(track_file_name)
 
         #   Assign everything in track
-        if raw:
-            self.raw = raw
-        if compressed:
-            self.compressed = compressed
+        self.raw = raw
         self.truth = truth
         self.meta = meta
 
@@ -85,42 +82,29 @@ class Tracks():
         if hasattr(self, 'drifted'):
             delattr(self, 'drifted')
 
-    def compress(self, scale=200e-6, compressed=False):
+    def compress(self, scale=200e-6):
         """  Compresses raw to compressed_track, by hierarchical
-        3d binning, to a bin size set by scale.  If compressed==True,
-        further compresses already compressed data, if it exists."""
+        3d binning, to a bin size algorithmically determined based on scale.
+        The bin size used is save in self.truth"""
 
-        #   Use compressed data if available and requested
-        if (compressed and hasattr(self, 'compressed')) \
-            or (not hasattr(self,'raw')):
-            num_e  = self.compressed['num_e']
-            r  = self.compressed['r']
-        else:
-            num_e  = self.raw['num_e']
-            r  = self.raw['r']
-
-        r, num_e, bin_size = compress_track(
-            r,
-            num_e,
+        self.raw['r'], self.raw['num_e'], bin_size = compress_track(
+            self.raw['r'],
+            self.raw['num_e'],
             scale=scale
             )
 
-        self.compressed = {}
-        self.compressed['bin_size'] = bin_size
-        self.compressed['r'] = r
-        self.compressed['num_e'] = num_e
+        self.truth['compressed_bin_size'] = bin_size
 
-    def apply_drift(self, depth=0, decompress=True, compressed=True):
+    def apply_drift(self, depth=0, decompress=True):
         """
         Drifts track, finding charge loss to electronegative capture, and
-        adds diffusion
+        adds diffusion.  Only z value of each entry which are negative are
+            read, unless 'depth' is supplied.
 
-        depth: The z value of each entry in the track is assumed negative,
-            and the drift distance for each is (z - depth).
-        decompress - if true, expands clumpled electrons (expanding r, num_e)
-            to properly treat diffusion and threshold.
-        compressed - if true, and have compressed track, apply drift
-            to this rather than raw track
+        depth: drift distance for each element with z is (z - depth).
+
+        decompress - if True, then decompresses track to accurately treat
+            loss to diffusion, based on sensor noise
 
         creates track.drifted, with fields
             r - same as raw, but note can have fewer entries due to
@@ -131,6 +115,7 @@ class Tracks():
 
         import numpy as np
         import sys
+        import copy
 
         import charge_drift_tools
 
@@ -141,15 +126,11 @@ class Tracks():
             self.read_params.material
             )
 
-        #   Use compressed data if available and requested
-        if compressed and hasattr(self, 'compressed'):
-            num_e  = self.compressed['num_e']
-            r  = self.compressed['r']
-        else:
-            num_e  = self.raw['num_e']
-            r  = self.raw['r']
+        #   Make a copy of charge and position
+        num_e  = copy.copy(self.raw['num_e'])
+        r  = copy.copy(self.raw['r'])
 
-        #   De-compress track so num_e is smaller than noise by some factor
+        #   Decompress track so num_e is smaller than noise by some factor
         if decompress:
 
             #   Find noise for the fine grained readout
@@ -223,7 +204,7 @@ class Tracks():
         #   Assign to track
         self.drifted = drifted
 
-    def readout_charge(self, depth=0, stats_output=False, compressed=True):
+    def readout_charge(self, depth=0, stats_output=False):
         """
         Updates params, drifts track, and reads track out with
             configured charge readout
@@ -231,8 +212,6 @@ class Tracks():
         depth: An added distance to that between each track element and
             the aonde, which is defined per cell.
         stats_output - compute additional statistics
-        compressed - if true, and have compressed track, apply readout
-            to this rather than raw track
 
         Output is added to track, and depends on charge readout.  See
             help in charge_readout_tools for decoumentation
@@ -250,7 +229,7 @@ class Tracks():
         self.read_params.calculate()
 
         #   Apply drift
-        self.apply_drift(depth=depth, compressed=compressed)
+        self.apply_drift(depth=depth)
 
         #   GAMPix for GammaTPC
         if self.read_params.charge_readout_name=='GAMPixG':
@@ -335,32 +314,21 @@ class Tracks():
 
         return fig, ax, plot_lims
 
-def save_track(full_file_name, track, write_raw=True, write_compressed=True):
+def save_track(full_file_name, track, write_raw=True):
     """
-    Saves raw and compressed tracks to npz and pickle files
-    with full_file_name.
+    Saves tracks to npz and pickle files with full_file_name.
     """
 
     import pickle
     import os
     import numpy as np
 
-    #   Save raw, if present
-    if hasattr(track, 'raw') & write_raw:
-        np.savez_compressed(
-            os.path.join(full_file_name + '.npz'),
-            r = track.raw['r'],
-            num_e = track.raw['num_e'],
-            )
-
-    #   Save compressed track, if present
-    if hasattr(track, 'compressed')  & write_compressed:
-        np.savez_compressed(
-            os.path.join(full_file_name + '.c.npz'),
-            r = track.compressed['r'],
-            num_e = track.compressed['num_e'],
-            bin_size = track.compressed['bin_size'],
-            )
+    #   Save raw
+    np.savez_compressed(
+        os.path.join(full_file_name + '.npz'),
+        r = track.raw['r'],
+        num_e = track.raw['num_e'],
+        )
 
     #   truth and meta data saved as pickle
     track_info = {}
@@ -369,20 +337,17 @@ def save_track(full_file_name, track, write_raw=True, write_compressed=True):
     with open(os.path.join(full_file_name + '.pickle'), 'wb') as f:
         pickle.dump(track_info, f)
 
-def load_track(full_file_name, read_raw=True, read_compressed=True):
+def load_track(full_file_name, read_raw=True):
     """
     Loads .npz and/or c.npz tracks, and.pickle
 
     full_file_name - path + file name, not including extensions
 
-    returns raw, compressed, truth and meta
+    returns raw, truth and meta
 
-    Returns None for raw and compressed data if these are not read, for
-    any reason.
     """
 
     import os
-    import sys
     import pickle
     import numpy as np
 
@@ -390,38 +355,17 @@ def load_track(full_file_name, read_raw=True, read_compressed=True):
     if '.c' in full_file_name:
         full_file_name = full_file_name.split('.c')[0]
 
-    #   Read raw track, if it exists
-    raw = None
-    if read_raw:
+    #   Read raw track
 
-        if os.path.isfile(os.path.join(full_file_name + '.npz')):
+    if os.path.isfile(os.path.join(full_file_name + '.npz')):
 
-            #   Load
-            guts = np.load(os.path.join(full_file_name + '.npz'))
+        #   Load
+        guts = np.load(os.path.join(full_file_name + '.npz'))
 
-            #   Construct track, dealing with compressed tracks
-            raw = {}
-            raw['r'] = guts['r']
-            raw['num_e'] = guts['num_e']
-
-    #   Read compressed track, if it exists
-    compressed = None
-    if read_compressed:
-
-        if os.path.isfile(os.path.join(full_file_name + '.c.npz')):
-
-            #   Load
-            guts = np.load(os.path.join(full_file_name + '.c.npz'))
-
-            #   Construct track, dealing with compressed tracks
-            compressed = {}
-            compressed['r'] = guts['r']
-            compressed['num_e'] = guts['num_e']
-            compressed['bin_size'] = guts['bin_size']
-
-    #   Barf out if nothing found
-    if (not raw) & (not compressed):
-        sys.exit('Error in load_track: nothing found')
+        #   Construct track
+        raw = {}
+        raw['r'] = guts['r']
+        raw['num_e'] = guts['num_e']
 
     #   load track_info from .pickle
     with open(os.path.join(full_file_name + '.pickle'), 'rb') as f:
@@ -429,23 +373,16 @@ def load_track(full_file_name, read_raw=True, read_compressed=True):
     truth = track_info['truth']
     meta = track_info['meta']
 
-    return raw, compressed, truth, meta
+    return raw, truth, meta
 
-def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name,
-                    compressed=True):
+def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name):
     """ Finds cell_bounds that contain raw track, buffering as
     needed to accomodate coarse sensors """
 
     import readout_tools
 
-    #   Use compressed data if available and requested
-    if compressed and hasattr(track, 'compressed'):
-        r  = track.compressed['r']
-    else:
-        r  = track.raw['r']
-
     #   Find bounding dimensions that contains track
-    cell_bounds = find_bounding_box(r)
+    cell_bounds = find_bounding_box(track.raw['r'])
 
     #   Buffer size to allow minimal coarse sensors
     coarse_pitch = readout_tools.Params(
