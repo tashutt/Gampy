@@ -15,7 +15,6 @@ TODO[ts] display_track: huge amount of clean up
 def display_track(track,
                   raw=True,
                   drifted=False,
-                  compressed=True,
                   pixels=True,
                   resolution=1e-5,
                   max_num_e=None,
@@ -102,7 +101,7 @@ def display_track(track,
         drifted = False
     if pixels and not hasattr(track, 'pixel_samples'):
         pixels = False
-    if not (raw or compressed or drifted or pixels):
+    if not (raw or drifted or pixels):
         print('*** Nothing to display')
         return None, None, None
 
@@ -124,14 +123,10 @@ def display_track(track,
     else:
         offset = np.zeros((3,))
 
-    #   Raw, compressed or drifted track - assign, and subtract offset
-    if (raw  and  hasattr(track, 'raw') ) \
-        and ~(compressed and hasattr(track, 'compressed')):
+    #   Raw, or drifted track - assign, and subtract offset
+    if (raw  and  hasattr(track, 'raw')):
         r = (track.raw['r'] - offset.reshape(3,1))
         num_e = track.raw['num_e']
-    elif compressed and hasattr(track, 'compressed'):
-        r  = (track.compressed['r'] - offset.reshape(3,1))
-        num_e  = track.compressed['num_e']
     elif drifted or pixels:
         r = (track.drifted['r'] - offset.reshape(3,1))
         num_e = track.drifted['num_e']
@@ -147,7 +142,7 @@ def display_track(track,
 
     #   Track gets digitized at physical scale resolution, and converted
     #   to scale for plotting
-    if raw or compressed or drifted:
+    if raw or drifted:
         r_p, n_e_p = prep_track(r, num_e, resolution, scale, track_extent)
 
     #   Plot limits
@@ -211,7 +206,7 @@ def display_track(track,
         drift_tag = ''
 
     #   Set maximum charges or samples
-    if  (raw or compressed or drifted) and max_num_e is None:
+    if  (raw or drifted) and max_num_e is None:
         max_num_e = n_e_p.max()
     if  pixels and max_pixel_samples is None:
         max_pixel_samples = np.max(
@@ -224,7 +219,7 @@ def display_track(track,
     #   3D
     ax = fig.add_subplot(projection='3d')
 
-    if raw or compressed or drifted:
+    if raw or drifted:
         ax.scatter(
             r_p[0,],
             r_p[1,],
