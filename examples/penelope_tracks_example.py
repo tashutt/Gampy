@@ -40,7 +40,7 @@ steering['folder_tag'] = ''
 # steering ['num_tracks'] = int(1e4) * np.ones_like(steering ['energies'], dtype=int)
 # steering ['num_tracks'] = np.array([6000, 6000, 6000, 8000, 8000, 9000], dtype=int)
 
-steering['energies'] = 30000
+steering['energies'] = 1500
 steering['num_tracks'] = 10
 # steering['eabs'] = np.tile(75, steering['energies'].size)
 # steering['cs'] = np.tile(.02, steering['energies'].size)

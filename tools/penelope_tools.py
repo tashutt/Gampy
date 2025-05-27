@@ -59,8 +59,6 @@ def simple_penelope_track_maker(p,
     import glob
     from datetime import datetime
 
-    import tracks_tools
-
     #   Simulation input
 
     #   Maximum number of tracks to simulate in penelope at one time - disk
@@ -249,17 +247,14 @@ def simple_penelope_track_maker(p,
                 track['meta']['energy'] = energy
                 track['meta']['particle_ids'] = particle_ids
 
-                #  Save penelope_tracks
+                #  Save tracks
                 file_name = full_file_name.split(os.path.sep)[-1]
                 out_file_name = (
                     file_name.split('_')[0]
                     + '_'
                     + datetime.now().strftime('D%Y%m%d_T%H%M%f')
                     )
-                tracks_tools.save_penelope_track(
-                    os.path.join(p2, out_file_name),
-                    track
-                    )
+                save_track(os.path.join(p2, out_file_name), track)
 
                 #   Delete raw penelope track, if requested
                 if delete_penelope_data:
@@ -379,15 +374,15 @@ def parse_penelope_file(
     #   icol = 8:  auxiallary interaction
 
     #   Assign values
-    step = data_block[:, 0].astype(int)
+    # step = data_block[:, 0].astype(int)
     particle_id = data_block[:, 2].astype(int)
     interaction = data_block[:, 7].astype(int)
     absorbed = data_block[:, 8].astype(int)
     delta_energy = data_block[:, 10] / 1000
-    delta_step = data_block[:, 11] * 100
     r = data_block[:, 12:].transpose() / 100
 
     if full_output:
+        delta_step = data_block[:, 11] * 100
         particle_num = data_block[:, 1].astype(int)
         energy = data_block[:, 9] / 1000
         atomic_relaxation = data_block[:, 6].astype(int)
@@ -521,6 +516,30 @@ def parse_penelope_file(
     track['meta']['simulation_date'] = simulation_date
 
     return track
+
+def save_track(full_file_name, track):
+    """
+    Saves raw tracks from penelope to npz and pickle files
+    with full_file_name.
+    """
+
+    import pickle
+    import os
+    import numpy as np
+
+    #   r, num_e and ther stuff saved as npz file
+    np.savez_compressed(
+        os.path.join(full_file_name + '.npz'),
+        r = track['r'],
+        num_e = track['num_e'],
+        )
+
+    #   truth and meta data saved as pickle
+    track_info = {}
+    track_info['truth'] = track['truth']
+    track_info['meta'] = track['meta']
+    with open(os.path.join(full_file_name + '.pickle'), 'wb') as f:
+        pickle.dump(track_info, f)
 
 def parse_penelope_in(p):
     """ Reads pentracks.in file in folder p; returns penelope_input """

@@ -335,30 +335,6 @@ class Tracks():
 
         return fig, ax, plot_lims
 
-def save_penelope_track(full_file_name, track):
-    """
-    Saves raw tracks from penelope to npz and pickle files
-    with full_file_name.
-    """
-
-    import pickle
-    import os
-    import numpy as np
-
-    #   r, num_e and ther stuff saved as npz file
-    np.savez_compressed(
-        os.path.join(full_file_name + '.npz'),
-        r = track['r'],
-        num_e = track['num_e'],
-        )
-
-    #   truth and meta data saved as pickle
-    track_info = {}
-    track_info['truth'] = track['truth']
-    track_info['meta'] = track['meta']
-    with open(os.path.join(full_file_name + '.pickle'), 'wb') as f:
-        pickle.dump(track_info, f)
-
 def save_track(full_file_name, track, write_raw=True, write_compressed=True):
     """
     Saves raw and compressed tracks to npz and pickle files
