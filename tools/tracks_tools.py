@@ -379,7 +379,7 @@ def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name):
     """ Finds cell_bounds that contain raw track, buffering as
     needed to accomodate coarse sensors """
 
-    import readout_tools
+    from . import readout_tools
 
     #   Find bounding dimensions that contains track
     cell_bounds = find_bounding_box(track.raw['r'])
