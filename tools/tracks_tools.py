@@ -22,8 +22,8 @@ class Tracks():
 
         readout_inputs_file_name help: readout_tools
         """
-        import sims_tools
-        import readout_tools
+        from . import sims_tools
+        from . import readout_tools
 
         #   Read track
         raw, truth, meta  = load_track(track_file_name)
@@ -53,8 +53,8 @@ class Tracks():
                      readout_inputs_file_name='default'):
         """ reset params, which allows change of charge readout,
         removes any samples that have already been generated """
-        import sims_tools
-        import readout_tools
+        from . import sims_tools
+        from . import readout_tools
 
         #   Get cell bounds
         cell_bounds = get_cell_bounds(self, charge_readout_name,
@@ -117,7 +117,7 @@ class Tracks():
         import sys
         import copy
 
-        import charge_drift_tools
+        from . import charge_drift_tools
 
         #   Recalculate params, and diffusion constants
         self.read_params.calculate()
@@ -223,7 +223,7 @@ class Tracks():
 
         import sys
 
-        import charge_readout_tools
+        from . import charge_readout_tools
 
         #   Recalculate params
         self.read_params.calculate()
