@@ -61,7 +61,7 @@ def readout_dual_scale_pixels(r, num_e, coarse_sensors, pixel_sensors,
 
     import numpy as np
 
-    import readout_tools
+    from . import readout_tools
 
     #   Find coarse voxels defined by coarse_sensors that contain charge
     voxels = find_voxels(r, coarse_sensors)

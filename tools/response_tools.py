@@ -67,7 +67,7 @@ def apply_detector_response(events):
     from numpy.random import randn
     import copy
 
-    from tools import sims_tools
+    from . import sims_tools
 
     print('Applying detector response')
 

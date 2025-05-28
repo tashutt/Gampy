@@ -45,7 +45,7 @@ class Params:
                  cells=None,
                  ):
         """ """
-        import sims_tools
+        from . import sims_tools
 
         #   Load inputs
         self.inputs, self.charge_readout_name = get_params_inputs(
@@ -70,7 +70,7 @@ class Params:
         import math
         import numpy as np
 
-        import charge_drift_tools
+        from . import charge_drift_tools
 
         #%%   Assign all inputs to attributes of params
         for key in self.inputs.keys():

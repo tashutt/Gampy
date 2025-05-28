@@ -45,9 +45,9 @@ class Events:
         import os
         import sys
 
-        from tools import file_tools
-        from tools import sims_tools
-        from tools import readout_tools
+        from . import file_tools
+        from . import sims_tools
+        from . import readout_tools
         import awkward as ak
 
         #   Get geometry_params

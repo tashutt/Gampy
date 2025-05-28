@@ -29,12 +29,12 @@ class Tracks():
 
         readout_inputs_file_name help: readout_tools
         """
+
         import sys
         import os
 
-        import sims_tools
-        import readout_tools
-
+        from . import sims_tools
+        from . import readout_tools
 
         #   Load either penelope or tracks files.  This logic is not only
         #   possibility
@@ -109,8 +109,8 @@ class Tracks():
                      readout_inputs_file_name='default'):
         """ reset params, which allows change of charge readout,
         removes any samples that have already been generated """
-        import sims_tools
-        import readout_tools
+        from . import sims_tools
+        from . import readout_tools
 
         #   Get cell bounds
         #   Find cell bounds that span raw track and accomodate coarse sensors
@@ -228,7 +228,7 @@ class Tracks():
         import sys
         import copy
 
-        import charge_drift_tools
+        from . import charge_drift_tools
 
         #   Recalculate params, and diffusion constants
         self.read_params.calculate()
@@ -334,7 +334,7 @@ class Tracks():
 
         import sys
 
-        import charge_readout_tools
+        from . import charge_readout_tools
 
         #   Recalculate params
         self.read_params.calculate()
@@ -471,7 +471,30 @@ def load_penelope_tracks(tracks_file_name, read_raw=True):
     truth = track_info['truth']
     meta = track_info['meta']
 
+<<<<<<< HEAD
     return guts['r'], guts['delta_energy'], truth, meta
+=======
+    return raw, truth, meta
+
+def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name):
+    """ Finds cell_bounds that contain raw track, buffering as
+    needed to accomodate coarse sensors """
+
+    from . import readout_tools
+
+    #   Find bounding dimensions that contains track
+    cell_bounds = find_bounding_box(track.raw['r'])
+
+    #   Buffer size to allow minimal coarse sensors
+    coarse_pitch = readout_tools.Params(
+        inputs_file_name = readout_inputs_file_name,
+        charge_readout_name=charge_readout_name,
+        ).coarse_pitch
+    cell_bounds[:, 0] -= coarse_pitch
+    cell_bounds[:, 1] += coarse_pitch
+
+    return cell_bounds
+>>>>>>> 46b3af3ff3544ae668161df71bbf745b24db920c
 
 def find_bounding_box(r, buffer=0.0):
     """
