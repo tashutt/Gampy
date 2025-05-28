@@ -7,6 +7,8 @@ the parameters class Params, and related functions.
 Note that any parameters not part of the simulation, such as wire grids
 dimensions, are not defined here.
 
+TODO: Params - remove get_params_from_setup, and from init,
+    add materials handling.
 TODO: Deal with versioning?
 
 @author: tshutt
@@ -20,10 +22,10 @@ class Params():
     geometry.
 
     inputs_source, all file names are full:
-        = 'geomega_defaults' - default input file for parameterized Geomega
-        =  file_name         - '.yaml' = input file for parameterized Geomega
-        =  file_name         - '.setup' = static Geomega file
-        = 'simple_cell'      - big vat simulation
+        'geomega_defaults' - default input file for parameterized Geomega
+        file_name          - '.yaml' = input file for parameterized Geomega
+                             '.setup' = static Geomega file
+        'simple_cell'      - big vat simulation
 
     cell_geometry - Geomega only. "rectangular" or "hexagonal".
         Supersedes input file values.
@@ -36,15 +38,17 @@ class Params():
     Parameterized Geomega geometry has .calculate() method to produce
     outputs from inputs.  Changes to parameters should exclusively done
     by changing inputs, then calculating outputs before use.
+
+    TODO: remove reading from setup file?
     """
 
-    def __init__(self, inputs_source='gomega_defaults', cell_geometry=None,
-                 cell_bounds=None):
+    def __init__(self, inputs_source='geomega_defaults',
+                 cell_geometry=None, cell_bounds=None):
         """ """
         import sys
 
         #   Load Geomega .yaml inputs, calculates parameters.
-        if ((inputs_source == 'gomega_defaults')
+        if ((inputs_source == 'geomega_defaults')
             or (inputs_source.split('.')[-1] == 'yaml')):
             self.geometry = 'parameterized_geomega'
             self.inputs = get_params_inputs(inputs_source, cell_geometry)
@@ -111,15 +115,15 @@ class Params():
         #   Recalculate derived values
         self.calculate()
 
-def get_params_inputs(inputs_source='gomega_defaults', cell_geometry=None):
-    """Returns inputs for params.  Cell geometry comes from seetings if
+def get_params_inputs(inputs_source='geomega_defaults', cell_geometry=None):
+    """Returns inputs for params.  Cell geometry comes from settings if
     not supplied."""
 
     import os
     import yaml
 
-    #   Set file to gomega_defaults if not supplied
-    if inputs_source == 'gomega_defaults':
+    #   Set file to geomega_defaults if not supplied
+    if inputs_source == 'geomega_defaults':
         inputs_source = os.path.join(
             os.path.dirname(os.path.split(__file__)[0]),
             'default_inputs',
@@ -278,6 +282,8 @@ def calculate_geomega_geometry_v1(params):
     Note that this detector description does not include the readout.
 
     Cosima and Geomega units are: cm, keV, g, deg
+
+    Material is hard-coded Ar.
 
     TODO: Add versioning.  This routine currently describes
     a detector with:

@@ -184,7 +184,7 @@ def display_track(track,
     # if track.meta['initial_particle']==1:
     #     particle_tag = 'e'
     track_tag = (
-        f'{track.truth["track_energy"]:4.0f} keV'
+        f'{track.truth["initial_particle_energy"]:4.0f} keV'
         + material_tag
         + num_tag
         )

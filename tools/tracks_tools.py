@@ -14,28 +14,54 @@ class Tracks():
     and display, with associated routines.
     """
 
-    def __init__(self, track_file_name, charge_readout_name='GAMPixG',
-                 readout_inputs_file_name='default'):
+    def __init__(self, tracks_file_name, charge_readout_name='GAMPixG',
+                 readout_inputs_file_name='default', read_penelope=True,
+                 delete_penelope=True, save_tracks=True):
         """
         Start by reading raw track file, and define parameters
         with a specified charge readout in a simple cell.
 
+        read_penelope - if penelope tracks file exists, read it instead of
+            tracks file
+        delete_penelope_ - if also read_penelope, deletes penelope
+            tracks file after reading
+        save_tracks - if also read_penelope, saves tracks file
+
         readout_inputs_file_name help: readout_tools
         """
+        import sys
+        import os
+
         import sims_tools
         import readout_tools
 
-        #   Read track
-        raw, truth, meta  = load_track(track_file_name)
 
-        #   Assign everything in track
-        self.raw = raw
-        self.truth = truth
-        self.meta = meta
+        #   Load either penelope or tracks files.  This logic is not only
+        #   possibility
+        penelope_loaded = False
+        if read_penelope\
+            and os.path.isfile(os.path.join(tracks_file_name + '.p.npz')):
+                print('Reading penelope tracks in '
+                      + os.path.split(tracks_file_name)[1] + '.p.npz')
+                r, delta_energy, truth, meta  \
+                    = load_penelope_tracks(tracks_file_name)
+                penelope_loaded = True
+        elif os.path.isfile(os.path.join(tracks_file_name + '.npz')):
+                print('Reading tracks in '
+                      + os.path.split(tracks_file_name)[1] + '.npz')
+                r, num_e, truth, meta = self.load_tracks(tracks_file_name)
+        else:
+            sys.exit('Requested tracks file not found '
+                     + os.path.split(tracks_file_name)[1])
 
-        #   Get cell bounds
-        cell_bounds = get_cell_bounds(self, charge_readout_name,
-                                      readout_inputs_file_name)
+        #   Find cell bounds that span raw track and accomodate coarse sensors
+        cell_bounds = find_bounding_box(r)
+        coarse_pitch = readout_tools.Params(
+            inputs_file_name = readout_inputs_file_name,
+            charge_readout_name=charge_readout_name,
+            ).coarse_pitch
+        cell_bounds[:, 0] -= coarse_pitch
+        cell_bounds[:, 1] += coarse_pitch
 
         #   Load simple cell geometry parameters
         self.sims_params = sims_tools.Params(
@@ -44,10 +70,40 @@ class Tracks():
             )
 
         #   Load readout parameters
+        #   TODO: split out physics params, for which fluid is supplied via
+        #       cells
         self.read_params = readout_tools.Params(
             charge_readout_name=charge_readout_name,
             cells=self.sims_params.cells,
             )
+        self.read_params.cells['fluid'] = meta['material']
+
+        #   Raw tracks structure.  If from penelope, generate charge first.
+        raw = {}
+        if penelope_loaded:
+            num_e = generate_charge(delta_energy, self.read_params)
+            raw['num_e'] = num_e[num_e > 0]
+            raw['r'] = r[:, num_e > 0]
+            truth["num_electrons"] = raw['num_e'].sum()
+        else:
+            raw['num_e'] = num_e
+            raw['r'] = r
+
+        #   Assign everything in track
+        self.raw = raw
+        self.truth = truth
+        self.meta = meta
+
+        #   Save tracks file if asked and if penelope file was read
+        if penelope_loaded and save_tracks:
+            self.save_tracks(tracks_file_name)
+            print('Saved tracks in '
+                  + os.path.split(tracks_file_name)[1] + '.npz')
+        #   Delete penelope tracks file if aksed, and if it was read
+        if penelope_loaded and delete_penelope and save_tracks:
+            os.remove(os.path.join(tracks_file_name + '.p.npz'))
+            print('Deleted '
+                  + os.path.split(tracks_file_name)[1] + '.p.npz')
 
     def reset_params(self, charge_readout_name='GAMPixG',
                      readout_inputs_file_name='default'):
@@ -57,8 +113,14 @@ class Tracks():
         import readout_tools
 
         #   Get cell bounds
-        cell_bounds = get_cell_bounds(self, charge_readout_name,
-                                      readout_inputs_file_name)
+        #   Find cell bounds that span raw track and accomodate coarse sensors
+        cell_bounds = find_bounding_box(self.raw['r'])
+        coarse_pitch = readout_tools.Params(
+            inputs_file_name = readout_inputs_file_name,
+            charge_readout_name=charge_readout_name,
+            ).coarse_pitch
+        cell_bounds[:, 0] -= coarse_pitch
+        cell_bounds[:, 1] += coarse_pitch
 
         #   Load simple cell geometry parameters
         self.sims_params = sims_tools.Params(
@@ -81,6 +143,55 @@ class Tracks():
             delattr(self, key)
         if hasattr(self, 'drifted'):
             delattr(self, 'drifted')
+
+    def load_tracks(self, tracks_file_name, read_raw=True):
+        """
+        Loads tracks in .npz files with .pickle truth and meta data
+
+        tracks_file_name - path + file name, not including extensions
+
+        returns r, delta_energy, truth and meta
+        """
+        import os
+        import sys
+        import pickle
+        import numpy as np
+
+        #   Track - as energies and positions
+        if os.path.isfile(os.path.join(tracks_file_name + '.npz')):
+            guts = np.load(os.path.join(tracks_file_name + '.npz'))
+        else:
+            sys.exit('Input tracks file not found in load_tracks')
+
+        #   Truth and metal data
+        with open(os.path.join(tracks_file_name + '.pickle'), 'rb') as f:
+            track_info = pickle.load(f)
+
+        return guts['r'], guts['num_e'], track_info['truth'], \
+            track_info['meta']
+
+    def save_tracks(self, tracks_file_name):
+        """
+        Saves tracks to npz and pickle files with tracks_file_name.
+        """
+        import pickle
+        import os
+        import numpy as np
+
+        #   Save raw
+        np.savez_compressed(
+            os.path.join(tracks_file_name + '.npz'),
+            r = self.raw['r'],
+            num_e = self.raw['num_e'],
+            )
+
+        #   truth and meta data saved as pickle
+        track_info = {}
+        track_info['truth'] = self.truth
+        track_info['meta'] = self.meta
+        with open(os.path.join(tracks_file_name + '.pickle'), 'wb') as f:
+            pickle.dump(track_info, f)
+
 
     def compress(self, scale=200e-6):
         """  Compresses raw to compressed_track, by hierarchical
@@ -314,85 +425,53 @@ class Tracks():
 
         return fig, ax, plot_lims
 
-def save_track(full_file_name, track, write_raw=True):
-    """
-    Saves tracks to npz and pickle files with full_file_name.
+def generate_charge(delta_energy, read_params):
+    """ Hacked routine, needs overhaul.  Should be supplied
+    physics_params.
     """
 
-    import pickle
-    import os
     import numpy as np
 
-    #   Save raw
-    np.savez_compressed(
-        os.path.join(full_file_name + '.npz'),
-        r = track.raw['r'],
-        num_e = track.raw['num_e'],
-        )
+    #   define w
+    #   Fudge was some early rough kludge; should be revisited. Also,
+    #   badly implemented - fudge should be in read_params also.
+    #   TODO[ts]: Clean up
+    w_fudge = 0.8
+    w = read_params.material['w'] * w_fudge
 
-    #   truth and meta data saved as pickle
-    track_info = {}
-    track_info['truth'] = track.truth
-    track_info['meta'] = track.meta
-    with open(os.path.join(full_file_name + '.pickle'), 'wb') as f:
-        pickle.dump(track_info, f)
+    num_e = np.round(np.fix(
+        delta_energy
+        / w * (1 - read_params.material['recombination'])
+        )).astype(int)
 
-def load_track(full_file_name, read_raw=True):
+    return num_e
+
+def load_penelope_tracks(tracks_file_name, read_raw=True):
     """
-    Loads .npz and/or c.npz tracks, and.pickle
+    Loads Penelope tracks in .npz files with .pickle truth and meta data
 
-    full_file_name - path + file name, not including extensions
+    tracks_file_name - path + file name, not including extensions
 
-    returns raw, truth and meta
-
+    returns r, delta_energy, truth and meta
     """
-
     import os
+    import sys
     import pickle
     import numpy as np
 
-    #   If file ends with .c, strip this off
-    if '.c' in full_file_name:
-        full_file_name = full_file_name.split('.c')[0]
+    #   Track - as energies and positions
+    if os.path.isfile(os.path.join(tracks_file_name + '.p.npz')):
+        guts = np.load(os.path.join(tracks_file_name + '.p.npz'))
+    else:
+        sys.exit('Input penelope file not found in load_penelope_tracks')
 
-    #   Read raw track
-
-    if os.path.isfile(os.path.join(full_file_name + '.npz')):
-
-        #   Load
-        guts = np.load(os.path.join(full_file_name + '.npz'))
-
-        #   Construct track
-        raw = {}
-        raw['r'] = guts['r']
-        raw['num_e'] = guts['num_e']
-
-    #   load track_info from .pickle
-    with open(os.path.join(full_file_name + '.pickle'), 'rb') as f:
+    #   Truth and metal data
+    with open(os.path.join(tracks_file_name + '.pickle'), 'rb') as f:
         track_info = pickle.load(f)
     truth = track_info['truth']
     meta = track_info['meta']
 
-    return raw, truth, meta
-
-def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name):
-    """ Finds cell_bounds that contain raw track, buffering as
-    needed to accomodate coarse sensors """
-
-    import readout_tools
-
-    #   Find bounding dimensions that contains track
-    cell_bounds = find_bounding_box(track.raw['r'])
-
-    #   Buffer size to allow minimal coarse sensors
-    coarse_pitch = readout_tools.Params(
-        inputs_file_name = readout_inputs_file_name,
-        charge_readout_name=charge_readout_name,
-        ).coarse_pitch
-    cell_bounds[:, 0] -= coarse_pitch
-    cell_bounds[:, 1] += coarse_pitch
-
-    return cell_bounds
+    return guts['r'], guts['delta_energy'], truth, meta
 
 def find_bounding_box(r, buffer=0.0):
     """

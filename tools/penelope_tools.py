@@ -31,6 +31,7 @@ def simple_penelope_track_maker(p,
         c - (optional) scalar or list, assigned to C1 and C2
         wc = (optional) ascalar or list, assigned to WCC and WCR
         'folder_tag' - (optional) for all folders from this simluation run
+    delete_penelope_data - if true deletes raw penelope output
     initial_direction:
         vector (array or list) - this becomes initial direction
             This assume tracks simulated in direction (0,0,1)
@@ -66,13 +67,8 @@ def simple_penelope_track_maker(p,
     #   parsed python files and removed until this batch is completed.
     max_num_tracks_batch = 50
 
-    #   Material and read_params to give recombination.  This is really not
-    #   handled well - material shoul be in read_params
-    material = 'LAr'
-    if 'material' in steering:
-        material = steering['material']
-    import readout_tools
-    read_params = readout_tools.Params()
+    #   Material from steering
+    material = steering['material']
 
     #   Particles are electrons by default.  Penelope particle ids are
     #   1=electron, 2=photon, 3=positron
@@ -235,7 +231,6 @@ def simple_penelope_track_maker(p,
                 #   Parse file
                 track = parse_penelope_file(
                     full_file_name,
-                    read_params,
                     initial_direction=initial_direction,
                     reset_origin=reset_origin,
                     full_output=full_output,
@@ -265,7 +260,6 @@ def simple_penelope_track_maker(p,
 
 def parse_penelope_file(
         full_file_name,
-        read_params,
         initial_direction=[0, 0, -1],
         reset_origin=True,
         full_output=False,
@@ -307,13 +301,6 @@ def parse_penelope_file(
 
     #   Get penelope settings from penelope_in file
     penelope_input = parse_penelope_in(os.path.split(full_file_name)[0])
-
-    #   define w
-    #   Fudge was some early rough kludge; should be revisited. Also,
-    #   badly implemented - fudge should be in read_params also.
-    #   TODO[ts]: Clean up
-    w_fudge = 0.8
-    w = read_params.material['w'] * w_fudge
 
     # print('\r  file  ' + str(nf) + ' ', end='')
 
@@ -396,28 +383,28 @@ def parse_penelope_file(
     compton = (particle_id==2) & (interaction==2)
     pair = (particle_id==2)& (interaction==4)
 
-    #   First interactions of photons.
+    #   Save first interactions of photons.
     first_interaction = 'n/a'
     if penelope_input['initial_particle']=='photon':
         if interaction[0]==2:
             first_interaction = 'compton'
+        elif interaction[0]==3:
+            first_interaction = 'photo'
         elif interaction[0]==4:
             first_interaction = 'pair'
 
-    #   Note that hard_inelastic, hard_brem, and inner_shell_ionization
+    #   Determine interactions to save.  Current understanding, which
+    #   may not be fully accurate, is:
+    #   Only e±, not photons.
+    #   Charge generated only in soft interactions
+    #   Note that hard_inelastic, hard_brem, and inner_shell_ionization,
     #   do not contribute to ionization - the energy  of these I think
     #   goes to secondary particles.
-    #   Charge generated only in soft interactions (this is debatable)
-    active_interactions = (
+    deposits_mask = (
         (interaction==1)
-        & (delta_energy > w)
+        & ~(particle_id==2)
         & ~((particle_id==3) & (absorbed==1))
         )
-    num_e = np.round(np.fix(
-        delta_energy
-        / w * (1 - read_params.material['recombination'])
-        ) * active_interactions).astype(int)
-    deposits_mask = num_e>0
 
     #   Initial diretion from Penelope input
     penelope_direction = penelope_input['s_o']
@@ -476,7 +463,6 @@ def parse_penelope_file(
         track['atomic_relaxation'] = atomic_relaxation
         track['absorbed'] = absorbed
         track['energy'] = energy
-        track['delta_energy'] = delta_energy
         track['delta_step'] = delta_step
         track['particle_num'] = particle_num
         track['parent'] = parent
@@ -488,14 +474,13 @@ def parse_penelope_file(
 
     #   r, num_e
     track['r'] = r[:, deposits_mask]
-    track['num_e'] = num_e[deposits_mask]
+    track['delta_energy'] = delta_energy[deposits_mask]
 
     #   Truth
     track['truth'] = {}
 
-    track['truth']['num_electrons'] = np.sum(num_e)
-    track['truth']['track_energy'] = penelope_input['initial_energy']
-
+    track['truth']['initial_particle_energy'] \
+        = penelope_input['initial_energy']
     track['truth']['origin'] = origin
     track['truth']['initial_direction'] = initial_direction
     track['truth']['first_interaction'] = first_interaction
@@ -529,9 +514,9 @@ def save_track(full_file_name, track):
 
     #   r, num_e and ther stuff saved as npz file
     np.savez_compressed(
-        os.path.join(full_file_name + '.npz'),
+        os.path.join(full_file_name + '.p.npz'),
         r = track['r'],
-        num_e = track['num_e'],
+        delta_energy = track['delta_energy'],
         )
 
     #   truth and meta data saved as pickle
