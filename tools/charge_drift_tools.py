@@ -37,7 +37,7 @@ def properties(field, material):
         #   http://www.ioffe.ru/SVA/NSM/Semicond/Si/electric.html
         # ****NEED TO TREAT E/HOLES SEPARATELY***********
         diffusion_constant['transverse'] =  36 * 1e-4
-        diffusion_constant['longitudinal ']= \
+        diffusion_constant['longitudinal']= \
             (2 / 3)** 2 * diffusion_constant['transverse']
         mobiilty = 1400/1e4
         velocity = mobiilty * field
