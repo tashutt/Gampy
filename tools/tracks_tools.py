@@ -446,55 +446,63 @@ def generate_charge(delta_energy, read_params):
 
     return num_e
 
-def load_penelope_tracks(tracks_file_name, read_raw=True):
+import os
+import sys
+import pickle
+import numpy as np
+
+def load_penelope_tracks(tracks_file_name):
     """
-    Loads Penelope tracks in .npz files with .pickle truth and meta data
+    Loads Penelope tracks from .npz files along with truth and metadata from .pickle files.
 
-    tracks_file_name - path + file name, not including extensions
+    Parameters:
+        tracks_file_name (str): Base file path without extensions.
 
-    returns r, delta_energy, truth and meta
+    Returns:
+        tuple: (r, delta_energy, truth, meta)
     """
-    import os
-    import sys
-    import pickle
-    import numpy as np
+    npz_path = tracks_file_name + '.p.npz'
+    pickle_path = tracks_file_name + '.pickle'
 
-    #   Track - as energies and positions
-    if os.path.isfile(os.path.join(tracks_file_name + '.p.npz')):
-        guts = np.load(os.path.join(tracks_file_name + '.p.npz'))
-    else:
-        sys.exit('Input penelope file not found in load_penelope_tracks')
+    if not os.path.isfile(npz_path):
+        sys.exit('Input Penelope file not found.')
 
-    #   Truth and metal data
-    with open(os.path.join(tracks_file_name + '.pickle'), 'rb') as f:
+    data = np.load(npz_path)
+
+    with open(pickle_path, 'rb') as f:
         track_info = pickle.load(f)
+
     truth = track_info['truth']
     meta = track_info['meta']
 
-<<<<<<< HEAD
-    return guts['r'], guts['delta_energy'], truth, meta
-=======
-    return raw, truth, meta
+    return data['r'], data['delta_energy'], truth, meta
 
 def get_cell_bounds(track, charge_readout_name, readout_inputs_file_name):
-    """ Finds cell_bounds that contain raw track, buffering as
-    needed to accomodate coarse sensors """
+    """
+    Computes cell bounds for a track with added coarse sensor buffer.
 
+    Parameters:
+        track: Track object with raw data.
+        charge_readout_name (str): Name of the charge readout configuration.
+        readout_inputs_file_name (str): Path to inputs file for readout parameters.
+
+    Returns:
+        np.ndarray: Buffered cell bounds.
+    """
     from . import readout_tools
 
-    #   Find bounding dimensions that contains track
     cell_bounds = find_bounding_box(track.raw['r'])
 
-    #   Buffer size to allow minimal coarse sensors
     coarse_pitch = readout_tools.Params(
-        inputs_file_name = readout_inputs_file_name,
-        charge_readout_name=charge_readout_name,
-        ).coarse_pitch
+        inputs_file_name=readout_inputs_file_name,
+        charge_readout_name=charge_readout_name
+    ).coarse_pitch
+
     cell_bounds[:, 0] -= coarse_pitch
     cell_bounds[:, 1] += coarse_pitch
 
     return cell_bounds
->>>>>>> 46b3af3ff3544ae668161df71bbf745b24db920c
+
 
 def find_bounding_box(r, buffer=0.0):
     """
