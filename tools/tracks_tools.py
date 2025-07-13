@@ -206,7 +206,7 @@ class Tracks():
 
         self.truth['compressed_bin_size'] = bin_size
 
-    def apply_drift(self, depth=0, decompress=True):
+    def apply_drift(self, depth=0, decompress=True, naive=False):
         """
         Drifts track, finding charge loss to electronegative capture, and
         adds diffusion.  Only z value of each entry which are negative are
@@ -222,6 +222,10 @@ class Tracks():
                 charge loss
             num_e - number of charges, after charge loss
             depth - record of input
+
+        naive:
+            will make sure all electrons are above 0 
+            and drift will be the depth
         """
 
         import numpy as np
@@ -264,6 +268,14 @@ class Tracks():
         #   Drift distance to anode, a positive quanity.  If depth supplied,
         #   add it.
         drift_distance = self.sims_params.cells['z_anode'] - r[2, :] + depth
+
+        # if naive, add to r[2, :] such that all are positive and add # depth to all
+        if naive:
+            # Shift z so all drift distances become ≥ 0
+            z_shift = max(0, -drift_distance.min())
+            print(f"Applying naive drift shift of {z_shift} m")
+            r[2, :] += z_shift
+            drift_distance = np.full_like(r[2, :], depth)
 
         #   Mask for valid drift distance
         drift_mask = drift_distance>0
@@ -339,8 +351,9 @@ class Tracks():
         #   Recalculate params
         self.read_params.calculate()
 
-        #   Apply drift
-        self.apply_drift(depth=depth)
+        #   Apply drift if not applied yet
+        if not hasattr(self, "drifted"):
+            self.apply_drift(depth=depth, compressed=compressed)
 
         #   GAMPix for GammaTPC
         if self.read_params.charge_readout_name=='GAMPixG':
