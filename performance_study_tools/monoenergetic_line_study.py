@@ -83,6 +83,8 @@ def write_run_command(file, myene, cosTh, results_dir, working_dir,readout_param
     runCode = f'FarFieldPointSource_{myene / 1000.:.3f}MeV_Cos{cosTh:.1f}'
     path_to_run_code = os.path.join(working_dir, runCode)
     pre = f"""#!/bin/bash
+#SBATCH --account=kipac:default
+#SBATCH --partition=roma
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G

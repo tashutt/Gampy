@@ -53,6 +53,8 @@ def write_run_command(file, min_e, run_dir, source_file_path):
     source_name      = os.path.basename(source_file_path).strip(".source")
 
     pre = f"""#!/bin/bash
+#SBATCH --partition=roma
+#SBATCH --account=kipac:default
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G

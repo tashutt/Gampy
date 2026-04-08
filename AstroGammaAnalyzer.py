@@ -20,12 +20,19 @@ from Gampy.performance_study_tools import monoenergetic_line_study as mls_study
 
 
 # Paths setup
+repo_dir = os.path.abspath(os.path.dirname(__file__))
+gampy_src_dir = os.path.join(repo_dir, 'Gampy')
 paths = {
     'root': '',
-    'gampy': os.path.abspath(os.path.dirname(__file__)),
-    'comp_params': os.path.join(os.path.dirname(__file__), 'Gampy', 'default_inputs', 'default_computation_inputs.yaml')
+    'gampy': repo_dir,
+    'comp_params': os.path.join(repo_dir, 
+    'default_inputs', 
+    'default_computation_inputs.yaml')
 }
-path_to_activation_setup = os.path.join(paths['gampy'], 'Gampy', 'performance_study_tools', 'activation_setup.py')
+path_to_activation_setup = os.path.join(
+    gampy_src_dir, 
+    'performance_study_tools', 
+    'activation_setup.py')
 sys.path.append(paths['gampy'])
 
 sims_params = sims_tools.Params(cell_geometry='hexagonal')
@@ -94,7 +101,7 @@ def apply_scenario(scenario_name):
         yaml.dump(sims_params.inputs, file)
     
     # --------------------------------------
-    with open('Gampy/default_inputs/default_readout_inputs.yaml', 'r') as file:
+    with open(os.path.join(paths['gampy'], 'default_inputs', 'default_readout_inputs.yaml'), 'r') as file:
         readout_params = yaml.safe_load(file)
     
     readout_params['spatial_resolution']['sigma_xy'] *= scenario['spatial_res_mult']
@@ -158,6 +165,6 @@ mls_study.generate_cosima_files_and_run_analysis(
 ######## RUN BACKGROUND SIMS ##########
 #######################################
 
-path_to_bckg_sim = os.path.join(paths['gampy'], 'Gampy', 'performance_study_tools', 'background_study.py')
+path_to_bckg_sim = os.path.join(gampy_src_dir, 'performance_study_tools', 'background_study.py')
 run_command = f"python {path_to_bckg_sim} -geometry_file {geo_file_name}.setup -comp_params {abs_path_comp_params} -readout_params {abs_path_nrp} -activation_file {activation_file}"
 os.system(run_command)
