@@ -393,32 +393,31 @@ def smear_space(r, params, energy=None):
     """
     Adapted for awkward array input, constructing a new array.
 
-    This version replaces the previous rrms-based spatial smearing with a
-    phenomenological model that captures two regimes:
+    Updated spatial resolution model with physically motivated anchors:
 
-    1) Low-energy regime (E < ~1000 keV):
-       A power-law scaling of the form:
+    1) Low-energy regime (E ~ 50 keV):
+       Resolution dominated by voxel discretization:
+           sigma = pitch / sqrt(12) / sqrt(3)
+
+       Using pitch = 0.5 mm:
+           f(50 keV) = 0.5 / sqrt(12) / sqrt(3) mm
+
+    2) High-energy regime (E ≥ ~1000 keV):
+       Detector/reconstruction-limited floor:
+           f = 0.1 / sqrt(3) mm
+
+    3) Transition:
+       A power-law connects these two points:
            f(E) = k * E^{-alpha}
-       with:
-           alpha ≈ 0.422
-           k ≈ 1.839  (units: mm * keV^alpha)
+       with parameters solved from the two anchors above.
 
-       This was chosen such that:
-           f(50 keV) = 0.5 / sqrt(2) mm
-        also, no bigger than 0.5 mm
-
-    2) High-energy regime (E ≥ 1000 keV):
-       A detector-limited floor:
-           f(E) = 0.1 mm
-
-    The full model is:
-           f(E) = max(0.1, k * E^{-alpha})
+    Final model:
+           f(E) = max(f_floor, k * E^{-alpha})
 
     Notes:
-    - Input energy is expected in keV.
-    - Output smearing is in meters (consistent with previous implementation).
-    - This model assumes resolution saturation dominated by reconstruction /
-      detector granularity at high energies.
+    - Energy is in keV
+    - Output is in meters
+    - sqrt(3) accounts for projection from isotropic 3D uncertainty
     """
 
     import awkward as ak
@@ -427,48 +426,55 @@ def smear_space(r, params, energy=None):
     transverse_part = params.spatial_resolution['sigma_xy']
     longitudinal_part = params.spatial_resolution['sigma_z']
 
+    def rndm(rand_len, std=1):
+        return np.random.normal(0, std, size=rand_len)
+
     def resolution_model(energy):
-        # --- hardcoded parameters from fit ---
-        alpha = 0.421554467100602
-        k = 1.8393458691163154  # mm * keV^alpha
-        floor_mm = 0.1  # mm
+        # --- anchors ---
+        E1 = 50.0  # keV
+        f1 = 0.5 / np.sqrt(12) / np.sqrt(3)  # mm
 
-        energy = np.asarray(energy, dtype=float)
-        # Guard against non-physical values that break power-law scaling.
-        energy = np.clip(energy, 1e-12, None)
+        E2 = 1000.0  # keV
+        f2 = 0.1 / np.sqrt(3)  # mm (floor)
 
-        # power-law part (in mm)
-        f_mm = np.minimum(k * energy**(-alpha), 0.5)
+        # --- solve power law ---
+        alpha = np.log(f1 / f2) / np.log(E2 / E1)
+        k = f1 * (E1 ** alpha)
+
+        energy = np.asarray(energy)
+
+        # power-law
+        f_mm = k * energy**(-alpha)
 
         # apply floor
-        f_mm = np.maximum(floor_mm, f_mm)
+        f_mm = np.maximum(f2, f_mm)
 
         # convert mm -> meters
         return f_mm * 1e-3
 
     rx, ry, rz = r[:, 0], r[:, 1], r[:, 2]
     toShape = ak.num(rx)
-    rand_len = int(ak.sum(toShape))
+    rand_len = len(np.ravel(rx))
 
-    # spatial_resolution_multiplier (default = 1)
     SRM = params.spatial_resolution.get('spatial_resolution_multiplier', 1)
 
     if energy is not None and len(energy) > 0:
         temp_qf = resolution_model(ak.flatten(energy)) * SRM
-        xyz_noise = np.random.normal(0.0, 1.0, size=(rand_len, 3))
-        xyz_noise = xyz_noise * np.asarray(temp_qf)[:, np.newaxis]
 
-        new_rx = rx + ak.unflatten(xyz_noise[:, 0], toShape, axis=0)
-        new_ry = ry + ak.unflatten(xyz_noise[:, 1], toShape, axis=0)
-        new_rz = rz + ak.unflatten(xyz_noise[:, 2], toShape, axis=0)
+        new_rx = rx + ak.unflatten(rndm(rand_len, temp_qf),
+                                  toShape, axis=0)
+        new_ry = ry + ak.unflatten(rndm(rand_len, temp_qf),
+                                  toShape, axis=0)
+        new_rz = rz + ak.unflatten(rndm(rand_len, temp_qf),
+                                  toShape, axis=0)
 
     else:
-        xy_noise = np.random.normal(0.0, transverse_part, size=(rand_len, 2))
-        z_noise = np.random.normal(0.0, longitudinal_part, size=rand_len)
-
-        new_rx = rx + ak.unflatten(xy_noise[:, 0], toShape, axis=0)
-        new_ry = ry + ak.unflatten(xy_noise[:, 1], toShape, axis=0)
-        new_rz = rz + ak.unflatten(z_noise, toShape, axis=0)
+        new_rx = rx + ak.unflatten(rndm(rand_len, transverse_part),
+                                  toShape, axis=0)
+        new_ry = ry + ak.unflatten(rndm(rand_len, transverse_part),
+                                  toShape, axis=0)
+        new_rz = rz + ak.unflatten(rndm(rand_len, longitudinal_part),
+                                  toShape, axis=0)
 
     combined_array = ak.concatenate([
         new_rx[:, np.newaxis],
