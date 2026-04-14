@@ -77,6 +77,7 @@ One.ParticleType        1
 One.Beam                FarFieldPointSource  {ang:.1f} 0
 One.Spectrum            Mono  {myene}
 One.Flux                1000.0
+One.Polarization Absolute 1.0 0 1 0
 """
 
 def write_run_command(file, myene, cosTh, results_dir, working_dir,readout_params,hours):
